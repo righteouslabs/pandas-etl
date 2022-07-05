@@ -4,7 +4,7 @@ A utility for running YAML config as Pandas based ETL code
 ## Installing ⏬
 
 ```bash
-pip install calltraces
+pip install pandas-etl
 ```
 
 ## Usage 📝
