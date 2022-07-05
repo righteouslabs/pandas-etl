@@ -72,6 +72,8 @@ steps:
   - ./my-aggregated-data.csv
 ```
 
+Running this YAML config
+
 ```bash
 python -m pandas-etl --file "./my-run.yaml"
 ```
