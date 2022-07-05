@@ -9,7 +9,7 @@ pip install calltraces
 
 ## Usage 📝
 
-YAML Config:
+YAML Config (`my-run.yaml` file):
 
 ```YAML
 variables:
