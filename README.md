@@ -21,8 +21,8 @@ pre-flight:
     import pandas as pd
 
 connections:
-  - name: my-source
-    connStr: postgresql+psycopg2://${var.server}/${var.database}
+- name: my-source
+  connStr: postgresql+psycopg2://${var.server}/${var.database}
 
 steps:
 
