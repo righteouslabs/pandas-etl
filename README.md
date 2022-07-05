@@ -55,9 +55,6 @@ steps:
     by: ${steps['Grouper for date column'].output}
     axis: columns
     dropna: false
-  output:
-    objects:
-    - sourceGroupedDf
 
 - name: aggregate-data
   function: # Call object specific function
