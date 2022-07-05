@@ -29,7 +29,7 @@ steps:
 - name: source-df # Unique step name in pipeline
   description: Read from my PostgreSQL server
   function: pd.read_sql # Call static function
-  args: # Key-word based paramter input
+  args: # Key-word based parameter input
     sql: |
       SELECT
         int_column,
