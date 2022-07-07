@@ -1,0 +1,72 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "local: conda env update",
+            "type": "shell",
+            "command": "conda",
+            "detail": "Setup Anaconda environment locally",
+            "args": [
+                "env",
+                "update",
+                "--name",
+                "pandas-etl"
+            ],
+            "problemMatcher": [],
+        },
+        {
+            "label": "local: python: black: current file",
+            "type": "shell",
+            "detail": "Format current python file based on black style standard",
+            "command": "${config:python.defaultInterpreterPath}",
+            "args": [
+                // Call the python black module
+                "-m",
+                "black",
+                // Specify the file that needs to be formatted
+                "${file}",
+            ],
+            "problemMatcher": [],
+        },
+        {
+            "label": "local: create dependency documentation folder",
+            "type": "shell",
+            "detail": "Used as a common task to create subfolders needed for output",
+            "command": "mkdir",
+            "windows": {
+                "args": [
+                    "-f",
+                    "${workspaceFolder}/docs/public/_static",
+                ],
+            },
+            "linux": {
+                "args": [
+                    "-p",
+                    "${workspaceFolder}/docs/public/_static",
+                ],
+            },
+            "problemMatcher": [],
+        },
+        {
+            "label": "python: pytest: run all tests",
+            "type": "process",
+            "detail": "Run all test cases for this project (also generates HTML coverage report)",
+            "command": "${config:python.defaultInterpreterPath}",
+            "args": [
+                // Call the python pytest module
+                "-m",
+                "pytest",
+                // Pytest command line arguments
+                "-c", "${workspaceFolder}/tests/pytest.ini",
+                "${workspaceFolder}",
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+        },
+    ],
+}

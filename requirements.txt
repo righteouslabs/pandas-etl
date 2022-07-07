@@ -1,0 +1,2 @@
+# Usage Dependency
+colorama>=0.4.4
