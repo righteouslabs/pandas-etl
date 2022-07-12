@@ -27,6 +27,19 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
             },
+        },
+        {
+            "name": "Python: Yaml Test",
+            "type": "python",
+            "request": "launch",
+            "module": "pandas-etl",
+            "console": "integratedTerminal",
+            "args":["--file", "${workspaceFolder}/tests/mockup.yaml"],
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
         }
     ]
 }
