@@ -21,7 +21,9 @@ authors = [
     { name = "Righteous AI Inc.", email = "admin@righteous.ai" }
 ]
 dependencies = [
-    "colorama>=0.4.4"
+    "colorama>=0.4.4",
+    "tqdm>=4.64.0",
+    "sqlalchemy>=1.4.39",
 ]
 dynamic = ["version"]
 classifiers = [
