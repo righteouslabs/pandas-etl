@@ -1,6 +1,4 @@
-from . import etl
-import sys
-import argparse
+from .etl import *
 
 
 def cl_args_parser():
@@ -28,8 +26,22 @@ def cl_args_parser():
         help="Define new variables or overwrite existing variables",
         metavar="varName1=varValue1",
     )
+    # TO-DO: support multiple variables specific to the yaml file, if multiple files are specified
 
     return parser
+
+
+@functiontrace
+def main(args):
+    yaml_file_objects = open_yaml_file(args)
+
+    for obj in yaml_file_objects:
+        yamlData = add_argument_variables(args, obj)
+        # Resolve the imports and add them to the yamlData dictionary
+        yamlData = resolve_imports(yamlData)
+        yamlData = find_and_replace_variables(yamlData)
+        find_and_execute_script(yamlData)
+        execute_steps(yamlData)
 
 
 if __name__ == "__main__":
@@ -40,10 +52,4 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit(0)
 
-    yaml_file_objects = etl.open_yaml_file(args)
-
-    for obj in yaml_file_objects:
-        yamlData = etl.add_argument_variables(args, obj)
-        yamlData = etl.find_and_replace_variables(yamlData)
-        etl.find_and_execute_script(yamlData)
-        etl.execute_steps(yamlData)
+    main(args)

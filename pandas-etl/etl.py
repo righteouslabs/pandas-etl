@@ -7,6 +7,7 @@ from calltraces.functiontrace import functiontrace
 from tqdm.auto import tqdm
 import re
 from sqlalchemy import create_engine
+import argparse
 
 
 @functiontrace
@@ -21,12 +22,12 @@ def open_yaml_file(args: Namespace) -> list:
                     with open(filePaths[i]) as f:
                         data.append(yaml.load(f, Loader=yaml.FullLoader))
                 else:
-                    raise ValueError("Wrong file extension")
+                    raise ValueError(f"Wrong file extension for file: {filePaths[i]}")
             else:
-                raise FileNotFoundError("No such file")
+                raise FileNotFoundError(f"No such file: {filePaths[i]}")
         return data
     except:
-        raise ValueError("Wrong filePaths input")
+        raise ValueError(f"Wrong filePaths input: {filePaths}")
 
 
 @functiontrace
@@ -62,6 +63,30 @@ def find_and_replace_variables(yamlData: dict) -> dict:
             )
     output = yaml.load(fieldValue, Loader=yaml.FullLoader)
     return output
+
+
+@functiontrace
+def resolve_imports(yamlData: dict):
+    """This function will resolve imports if any"""
+    if "imports" in yamlData.keys():
+        for imp in yamlData.get("imports", {}):
+            if os.path.exists(imp):
+                if imp.endswith((".yml", ".yaml")):
+                    with open(imp) as f:
+                        import_yamlData = yaml.load(f, Loader=yaml.FullLoader)
+                else:
+                    raise ValueError(f"Wrong file extension for the import {imp}")
+            else:
+                raise FileNotFoundError(f"No such file: {imp}")
+            for key in yamlData.keys():
+                if key == "imports":
+                    return resolve_imports(import_yamlData)
+                elif key in ["steps", "connections"]:
+                    import_yamlData.get(key, {}).append(yamlData[key])
+                else:
+                    import_yamlData.get(key, {}).update(yamlData[key])
+        return import_yamlData
+    return yamlData
 
 
 @functiontrace
@@ -135,9 +160,7 @@ def resolve_connections_variables(
 def execute_steps(yamlData: dict):
     """This function executes the steps specified"""
     tqdm_function_list = tqdm(
-        iterable=yamlData["steps"],
-        unit=" function",
-        desc="YAML Steps",
+        iterable=yamlData["steps"], unit=" function", desc="YAML Steps", colour="green"
     )
     for step in tqdm_function_list:
         tqdm_function_list.set_postfix_str(
