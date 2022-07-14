@@ -50,14 +50,14 @@ def find_and_replace_variables(yamlData: dict) -> dict:
     """This function helps find and replace variables"""
     fieldValue = yaml.dump(yamlData)
     yamlVariables = yamlData.get("variables", {})
-    variables_regex = re.compile(r"\{\{ var\.(.*?) \}\}")
+    variables_regex = re.compile(r"\$\{var\.(.*?)\}")
     variables_matched = re.findall(pattern=variables_regex, string=fieldValue)
     for v in variables_matched:
         if v not in yamlVariables.keys():
             raise ValueError(f"Unknown variable {v} found")
         else:
             fieldValue = re.sub(
-                pattern=r"\{\{ var\." + v + r" \}\}",
+                pattern=r"\$\{var\." + v + r"\}",
                 repl=yamlVariables[v],
                 string=fieldValue,
             )
@@ -129,7 +129,7 @@ def replace_steps_output(
                 if yamlData["steps"][x]["name"] == s:
                     find_key_by_value_and_assign(
                         step,
-                        "{{ steps['" + s + "'].output }}",
+                        "${steps['" + s + "'].output}",
                         yamlData["steps"][x]["output"],
                     )
             except:
@@ -148,7 +148,7 @@ def resolve_connections_variables(
                 if yamlData["connections"][x]["name"] == c:
                     find_key_by_value_and_assign(
                         step,
-                        "{{ conn." + c + " }}",
+                        "${conn." + c + "}",
                         yamlData["connections"][x]["engine"],
                     )
             except:
@@ -172,19 +172,51 @@ def execute_steps(yamlData: dict):
         fieldValue = yaml.dump(step)
 
         # Check if the step requires output from the previous steps
-        steps_output_regex = re.compile(r"\{\{ steps\[\'(.*?)\'\]\.output \}\}")
+        steps_output_regex = re.compile(r"\$\{steps\[\'(.*?)\'\]\.output\}")
         steps_output_matched = re.findall(steps_output_regex, string=fieldValue)
         if len(steps_output_matched) > 0:
             step = replace_steps_output(steps_output_matched, step, yamlData)
 
         # Check if the step execution requires connections engine to the database
-        conn_regex = re.compile(r"\{\{ conn\.(.*) \}\}")
+        conn_regex = re.compile(r"\$\{conn\.(.*)\}")
         conn_matched = re.findall(conn_regex, string=fieldValue)
         if len(conn_matched) > 0:
             step = resolve_connections_variables(conn_matched, step, yamlData)
 
+        # Check if the step has only one property, then treat it as a static function
+        if len(step.keys()) == 1:
+            function = list(step.keys())[0]
+            if type(step.get(function)) == dict:
+                kwargs = step.get(function, {})
+                # args = []
+            else:
+                args = step.get(function, [])
+                # kwargs = {}
+            function_regex = re.compile(r"steps\[\'(.*?)\'\]\.output")
+            function_matched = re.findall(function_regex, function)
+            if len(function_matched) > 0:
+                # This is a object specific function
+                # TODO: Resolve this function
+                function_object = replace_steps_output(
+                    function_matched, function, yamlData
+                )
+        # Or else the function is a object specific
+        elif "function" in step.keys():
+            method = step["function"]["name"]
+            function = f"step['function']['object'].{method}"
+            if "args" in step.keys():
+                if type(step.get("args")) == dict:
+                    kwargs = step.get("args", {})
+                    # args = []
+                else:
+                    args = step.get("args", [])
+                    # kwargs = {}
+        else:
+            raise ValueError(f"Invalid step type: {step}")
+
         # Find the correct function and get output
-        output = eval(f"{step['function']}('{step['args'][0]}')")
+        funcHandle = eval(function)
+        output = funcHandle(*args, **kwargs)
 
         # Assign the output of the function to the step output
         step["output"] = output
@@ -218,3 +250,48 @@ def execute_steps(yamlData: dict):
 #                 raise ValueError(f"NO step output found for step name: {s}")
 #     output = yaml.load(fieldValue, Loader=yaml.FullLoader)
 #     return output
+
+########## YAML Constructor #################################
+# TODO: Implement YAML constructor
+
+# connection_regex = re.compile(r"\$\{conn.*?\}")
+# variables_regex = re.compile(r"\$\{var.*?\}")
+# steps_output_regex = re.compile(r"\$\{steps\[\'.*?\'\]\.output\}")
+
+# # def connection_representer(dumper, data):
+# #     return dumper.represent_scalar(u'!connection', u'{%s}' % data)
+
+# # yaml.add_representer(str, connection_representer)
+
+
+# def connection_constructor(loader, node):
+#     print("inside parameter_constructor")
+#     value = loader.construct_scalar(node)
+#     a = map(object, re.findall(connection_regex, value))
+#     return "connections"
+
+
+# yaml.add_constructor("!connection", connection_constructor)
+# yaml.add_implicit_resolver("!connection", connection_regex)
+
+
+# def variables_constructor(loader, node):
+#     print("inside variables_constructor")
+#     value = loader.construct_scalar(node)
+#     a = map(object, re.findall(variables_regex, value))
+#     return "variables"
+
+
+# yaml.add_constructor("!variables", variables_constructor)
+# yaml.add_implicit_resolver("!variables", variables_regex)
+
+
+# def steps_output_constructor(loader, node):
+#     print("inside step_output_constructor")
+#     value = loader.construct_scalar(node)
+#     a = map(object, re.findall(steps_output_regex, value))
+#     return "steps_output"
+
+
+# yaml.add_constructor("!steps_output", steps_output_constructor)
+# yaml.add_implicit_resolver("!steps_output", steps_output_regex)
