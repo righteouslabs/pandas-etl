@@ -7,10 +7,11 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pandas-etl"
+name = "pandas_etl"
 description = "A utility for running YAML config as Pandas based ETL code"
 keywords = [
     "pandas-etl",
+    "pandas_etl",
     "call",
     "yaml",
 ]
@@ -44,7 +45,7 @@ classifiers = [
 [tool.setuptools_scm]
 
 [tool.setuptools]
-packages = ["pandas-etl"]
+packages = ["pandas_etl"]
 
 [tool.black]
 target-version = ['py38', 'py39']

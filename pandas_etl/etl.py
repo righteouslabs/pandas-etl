@@ -1,5 +1,6 @@
-from argparse import Namespace
+from inspect import trace
 import os
+from shutil import ExecError
 import sys
 import yaml
 from calltraces.linetrace import traceInfo, traceError
@@ -11,37 +12,37 @@ import argparse
 
 
 @functiontrace
-def open_yaml_file(args: Namespace) -> list:
+def to_yaml(data: str) -> dict:
     """Open a YAML file from the specified file path"""
-    filePaths = args.file
     try:
-        data = []
-        for i in range(len(filePaths)):
-            if os.path.exists(filePaths[i]):
-                if filePaths[i].endswith((".yml", ".yaml")):
-                    with open(filePaths[i]) as f:
-                        data.append(yaml.load(f, Loader=yaml.FullLoader))
-                else:
-                    raise ValueError(f"Wrong file extension for file: {filePaths[i]}")
-            else:
-                raise FileNotFoundError(f"No such file: {filePaths[i]}")
-        return data
+        yamlData = yaml.load(data, Loader=yaml.FullLoader)
+        traceInfo(f"The yaml config is loaded!")
+        return yamlData
     except:
-        raise ValueError(f"Wrong filePaths input: {filePaths}")
+        raise ValueError(f"Wrong input")
 
 
 @functiontrace
-def add_argument_variables(args, yamlData: dict) -> dict:
+def add_argument_variables(var: list, yamlData: dict) -> dict:
     """This function adds variables defined in the arguments to the yaml file variables"""
-    if args.var is not None:
+    if var is not None:
         if "variables" not in yamlData.keys():
             yamlData["variables"] = {}
-        for v in args.var:
+        for v in var:
             argKey, argValue = v.split("=")
-            for k, v in list(yamlData.get("variables", {}).items()):
-                if k == argKey:
-                    k = argValue
             yamlData["variables"][argKey] = argValue
+            traceInfo(f"Imported the variable: {argKey}: {argValue}")
+    return yamlData
+
+
+@functiontrace
+def add_argument_imports(imports: list, yamlData: dict) -> dict:
+    """This function adds imports defined in the arguments to the yaml file imports"""
+    if imports is not None:
+        if "imports" not in yamlData.keys():
+            yamlData["imports"] = {}
+        yamlData["imports"] = imports + yamlData["imports"]
+        traceInfo(f"Added imports: {imports}, at the top of yaml config")
     return yamlData
 
 
@@ -54,13 +55,14 @@ def find_and_replace_variables(yamlData: dict) -> dict:
     variables_matched = re.findall(pattern=variables_regex, string=fieldValue)
     for v in variables_matched:
         if v not in yamlVariables.keys():
-            raise ValueError(f"Unknown variable {v} found")
+            raise ValueError(f"Unknown variable '{v}' found")
         else:
             fieldValue = re.sub(
                 pattern=r"\$\{var\." + v + r"\}",
                 repl=yamlVariables[v],
                 string=fieldValue,
             )
+        traceInfo(f"Substituted Variable '{v}' in yaml config")
     output = yaml.load(fieldValue, Loader=yaml.FullLoader)
     return output
 
@@ -74,17 +76,22 @@ def resolve_imports(yamlData: dict):
                 if imp.endswith((".yml", ".yaml")):
                     with open(imp) as f:
                         import_yamlData = yaml.load(f, Loader=yaml.FullLoader)
+                        traceInfo(f"Imported file: {imp}")
                 else:
                     raise ValueError(f"Wrong file extension for the import {imp}")
             else:
                 raise FileNotFoundError(f"No such file: {imp}")
-            for key in yamlData.keys():
+            for key in import_yamlData.keys():
                 if key == "imports":
                     return resolve_imports(import_yamlData)
                 elif key in ["steps", "connections"]:
-                    import_yamlData.get(key, {}).append(yamlData[key])
+                    import_yamlData.get(key, {}).append(yamlData.get(key, []))
+                    traceInfo(
+                        f"Appended {key} property from import file {imp} to the top"
+                    )
                 else:
-                    import_yamlData.get(key, {}).update(yamlData[key])
+                    import_yamlData.get(key, {}).update(yamlData.get(key, {}))
+                    traceInfo(f"Updated {key} property from import file {imp}")
         return import_yamlData
     return yamlData
 
@@ -92,16 +99,20 @@ def resolve_imports(yamlData: dict):
 @functiontrace
 def create_engine_connection(yamlData: dict):
     """This function will find and create engine connection"""
-    if "connections" in yamlData.keys():
-        for conn in yamlData.get("connections", {}):
-            conn["engine"] = create_engine(conn["connStr"])
+    for conn in yamlData.get("connections", []):
+        conn["engine"] = create_engine(conn["connStr"])
+        traceInfo(f"Created an engine for connection: {conn['name']}")
 
 
 @functiontrace
 def find_and_execute_script(yamlData: dict):
     """This function will find and execute script under pre-flight"""
     script = yamlData.get("pre-flight", {}).get("script", "")
-    exec(script, globals())
+    try:
+        exec(script, globals())
+        traceInfo(f"Finished executing script from pre-flight!")
+    except:
+        raise ExecError(f"Failed to execute script: {script}")
 
 
 @functiontrace
@@ -109,13 +120,18 @@ def find_key_by_value_and_assign(data: dict, target: str, assign):
     """This function finds the key by value and assigns a new value to the key"""
     for k, v in data.items():
         if v == target:
-            k = assign
+            data[k] = assign
         elif isinstance(v, dict):
-            return find_key_by_value_and_assign(v, target, assign)
+            data[k] = find_key_by_value_and_assign(v, target, assign)
         elif isinstance(v, list):
+            x = 0
             for i in v:
                 if isinstance(i, dict):
-                    return find_key_by_value_and_assign(i, target, assign)
+                    data[k][x] = find_key_by_value_and_assign(i, target, assign)
+                elif i == target:
+                    data[k][x] = assign
+                x += 1
+    return data
 
 
 @functiontrace
@@ -126,12 +142,20 @@ def replace_steps_output(
     for s in steps_output_matched:
         for x in range(len(yamlData["steps"])):
             try:
-                if yamlData["steps"][x]["name"] == s:
+                if s in yamlData["steps"][x].keys():
                     find_key_by_value_and_assign(
                         step,
                         "${steps['" + s + "'].output}",
                         yamlData["steps"][x]["output"],
                     )
+                elif yamlData["steps"][x].get("name", None) == s:
+                    find_key_by_value_and_assign(
+                        step,
+                        "${steps['" + s + "'].output}",
+                        yamlData["steps"][x]["output"],
+                    )
+                else:
+                    raise ValueError(f"NO step output found for step name: {s}")
             except:
                 raise ValueError(f"NO step output found for step name: {s}")
     return step
@@ -151,9 +175,27 @@ def resolve_connections_variables(
                         "${conn." + c + "}",
                         yamlData["connections"][x]["engine"],
                     )
+                else:
+                    raise ValueError(f"NO connection engine found for name: {c}")
             except:
                 raise ValueError(f"NO connection engine found for name: {c}")
     return step
+
+
+@functiontrace
+def return_function_object(function_matched: list, yamlData: dict) -> dict:
+    for f in function_matched:
+        for x in range(len(yamlData["steps"])):
+            try:
+                if f in yamlData["steps"][x].keys():
+                    function_object = yamlData["steps"][x]["output"]
+                elif yamlData["steps"][x].get("name", None) == f:
+                    function_object = yamlData["steps"][x]["output"]
+                else:
+                    raise ValueError(f"NO step output found for step name: {f}")
+            except:
+                raise ValueError(f"NO step output found for step name: {f}")
+    return function_object
 
 
 @functiontrace
@@ -163,9 +205,14 @@ def execute_steps(yamlData: dict):
         iterable=yamlData["steps"], unit=" function", desc="YAML Steps", colour="green"
     )
     for step in tqdm_function_list:
+        if "name" in step.keys():
+            function_name = step["name"]
+        else:
+            function_name = list(step.keys())[0]
+
         tqdm_function_list.set_postfix_str(
             "Function Name: "
-            + step["name"]
+            + function_name
             + "; Function Description: "
             + step.get("description", "No description provided")
         )
@@ -176,80 +223,70 @@ def execute_steps(yamlData: dict):
         steps_output_matched = re.findall(steps_output_regex, string=fieldValue)
         if len(steps_output_matched) > 0:
             step = replace_steps_output(steps_output_matched, step, yamlData)
+            traceInfo(f"Successfully replaced outputs needed for step!")
 
         # Check if the step execution requires connections engine to the database
         conn_regex = re.compile(r"\$\{conn\.(.*)\}")
         conn_matched = re.findall(conn_regex, string=fieldValue)
         if len(conn_matched) > 0:
             step = resolve_connections_variables(conn_matched, step, yamlData)
+            traceInfo(f"Successfully replaced connections needed for step!")
 
-        # Check if the step has only one property, then treat it as a static function
+        # Check if the step has only one property
         if len(step.keys()) == 1:
             function = list(step.keys())[0]
             if type(step.get(function)) == dict:
                 kwargs = step.get(function, {})
-                # args = []
             else:
                 args = step.get(function, [])
-                # kwargs = {}
             function_regex = re.compile(r"steps\[\'(.*?)\'\]\.output")
             function_matched = re.findall(function_regex, function)
             if len(function_matched) > 0:
-                # This is a object specific function
-                # TODO: Resolve this function
-                function_object = replace_steps_output(
-                    function_matched, function, yamlData
-                )
-        # Or else the function is a object specific
+                function_object = return_function_object(function_matched, yamlData)
+                step["name"] = function_object + "." + function.split(".")[-1]
+                function = getattr(function_object, function.split(".")[-1])
         elif "function" in step.keys():
-            method = step["function"]["name"]
-            function = f"step['function']['object'].{method}"
+            if type(step["function"]) is not dict:
+                method = step["function"]
+                function = f"{method}"
+            else:
+                method = step["function"]["name"]
+                function = f"{step['function']['object']}.{method}"
+
             if "args" in step.keys():
                 if type(step.get("args")) == dict:
                     kwargs = step.get("args", {})
-                    # args = []
                 else:
                     args = step.get("args", [])
-                    # kwargs = {}
         else:
             raise ValueError(f"Invalid step type: {step}")
 
         # Find the correct function and get output
         funcHandle = eval(function)
-        output = funcHandle(*args, **kwargs)
+        if args is not None:
+            traceInfo(f"Executing function: '{function_name}', with arguments: {args}")
+            try:
+                output = funcHandle(*args)
+            except:
+                raise ExecError(
+                    f"Error executing function: {function_name}, , with arguments: {args}"
+                )
+        else:
+            traceInfo(
+                f"Executing function: '{function_name}', with arguments: {kwargs}"
+            )
+            try:
+                output = funcHandle(**kwargs)
+            except:
+                raise ExecError(
+                    f"Error executing function: {function_name}, with arguments: {kwargs}"
+                )
 
         # Assign the output of the function to the step output
         step["output"] = output
+        traceInfo(f"Successfully executed step and stored as output!")
+    traceInfo(f"Successfully executed all the steps!")
 
-
-# def find_and_execute_all_steps(yamlData: dict):
-#     """This function will find and execute all steps"""
-#     for step in yamlData["steps"]:
-#         print(
-#             f"Step name: {step['name']}; Step description: {step.get('description', 'No description provided')}"
-#         )
-#         output = eval(f"{step['function']}('{step['args'][0]}')")
-#         step["output"] = output
-
-
-# def find_and_replace_step_output(yamlData: dict) -> dict:
-#     """This function finds and replaces the step output"""
-#     fieldValue = yaml.dump(yamlData)
-#     steps_output_regex = re.compile(r"\{\{ steps\[\'(.*?)\'\]\.output \}\}")
-#     steps_output_matched = re.findall(steps_output_regex, string=fieldValue)
-#     for s in steps_output_matched:
-#         for x in range(len(yamlData["steps"])):
-#             try:
-#                 if yamlData["steps"][x]["name"] == s:
-#                     fieldValue = re.sub(
-#                         pattern=r"\{\{ steps\[\'" + s + r"\'\]\.output \}\}",
-#                         repl=yamlData["steps"][x]["output"],
-#                         string=fieldValue,
-#                     )
-#             except:
-#                 raise ValueError(f"NO step output found for step name: {s}")
-#     output = yaml.load(fieldValue, Loader=yaml.FullLoader)
-#     return output
 
 ########## YAML Constructor #################################
 # TODO: Implement YAML constructor

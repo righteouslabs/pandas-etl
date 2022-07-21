@@ -72,5 +72,5 @@ steps:
 Running this YAML config
 
 ```bash
-python -m pandas-etl --file "./my-run.yaml"
+python -m pandas_etl --file "./my-run.yaml"
 ```
