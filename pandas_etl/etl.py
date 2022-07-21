@@ -7,7 +7,7 @@ from calltraces.linetrace import traceInfo, traceError
 from calltraces.functiontrace import functiontrace
 from tqdm.auto import tqdm
 import re
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, false
 import argparse
 
 
@@ -121,6 +121,7 @@ def find_key_by_value_and_assign(data: dict, target: str, assign):
     for k, v in data.items():
         if v == target:
             data[k] = assign
+            break
         elif isinstance(v, dict):
             data[k] = find_key_by_value_and_assign(v, target, assign)
         elif isinstance(v, list):
@@ -130,6 +131,7 @@ def find_key_by_value_and_assign(data: dict, target: str, assign):
                     data[k][x] = find_key_by_value_and_assign(i, target, assign)
                 elif i == target:
                     data[k][x] = assign
+                    break
                 x += 1
     return data
 
@@ -140,24 +142,29 @@ def replace_steps_output(
 ) -> dict:
     """This function replaces the steps key value pairs with output"""
     for s in steps_output_matched:
-        for x in range(len(yamlData["steps"])):
-            try:
+        try:
+            found = False
+            for x in range(len(yamlData["steps"])):
                 if s in yamlData["steps"][x].keys():
                     find_key_by_value_and_assign(
                         step,
                         "${steps['" + s + "'].output}",
                         yamlData["steps"][x]["output"],
                     )
+                    found = True
+                    break
                 elif yamlData["steps"][x].get("name", None) == s:
                     find_key_by_value_and_assign(
                         step,
                         "${steps['" + s + "'].output}",
                         yamlData["steps"][x]["output"],
                     )
-                else:
-                    raise ValueError(f"NO step output found for step name: {s}")
-            except:
+                    found = True
+                    break
+            if not found:
                 raise ValueError(f"NO step output found for step name: {s}")
+        except:
+            raise ValueError(f"NO step output found for step name: {s}")
     return step
 
 
@@ -165,7 +172,7 @@ def replace_steps_output(
 def resolve_connections_variables(
     conn_matched: list, step: dict, yamlData: dict
 ) -> dict:
-    """This function helps resolve connection variables for sql queries"""
+    """This function helps resolve connection variables for sql queries and returns step with corresponding engine connection"""
     for c in conn_matched:
         for x in range(len(yamlData["connections"])):
             try:
@@ -175,6 +182,7 @@ def resolve_connections_variables(
                         "${conn." + c + "}",
                         yamlData["connections"][x]["engine"],
                     )
+                    break
                 else:
                     raise ValueError(f"NO connection engine found for name: {c}")
             except:
@@ -189,8 +197,10 @@ def return_function_object(function_matched: list, yamlData: dict) -> dict:
             try:
                 if f in yamlData["steps"][x].keys():
                     function_object = yamlData["steps"][x]["output"]
+                    break
                 elif yamlData["steps"][x].get("name", None) == f:
                     function_object = yamlData["steps"][x]["output"]
+                    break
                 else:
                     raise ValueError(f"NO step output found for step name: {f}")
             except:

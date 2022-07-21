@@ -286,34 +286,10 @@ class TestReplaceStepsOutput:
             yamlData=self.yamlData,
         )
         expected = {
-            "steps": [
-                {
-                    "pd.read_sql": {
-                        "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                        "con": "${conn.my-source}",
-                        "index_col": "int_column",
-                        "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-                    },
-                    "output": "pd.read_sql.output",
-                },
-                {
-                    "pd.Grouper": {"key": "date_column", "freq": "W-MON"},
-                    "output": "pd.Grouper.output",
-                },
-                {
-                    "name": "group-data",
-                    "description": "Group data by int and date columns every week",
-                    "function": {
-                        "object": "pd.read_sql.output",
-                        "name": "groupby",
-                    },
-                    "args": {
-                        "by": "pd.Grouper.output",
-                        "axis": "columns",
-                        "dropna": False,
-                    },
-                },
-            ]
+            "name": "group-data",
+            "description": "Group data by int and date columns every week",
+            "function": {"object": "pd.read_sql.output", "name": "groupby"},
+            "args": {"by": "pd.Grouper.output", "axis": "columns", "dropna": False},
         }
         assert result == expected
 
@@ -401,23 +377,12 @@ class TestResolveConnectionsVariables:
             yamlData=self.yamlData,
         )
         expected = {
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                    "engine": "Engine",
-                }
-            ],
-            "steps": [
-                {
-                    "pd.read_sql": {
-                        "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                        "con": "Engine",
-                        "index_col": "int_column",
-                        "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-                    },
-                },
-            ],
+            "pd.read_sql": {
+                "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
+                "con": "Engine",
+                "index_col": "int_column",
+                "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
+            },
         }
         assert result == expected
 
