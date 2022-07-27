@@ -1,6 +1,7 @@
+import os
 import pytest
+import yaml
 from pandas_etl import etl
-
 import sqlalchemy
 from sqlalchemy.engine.base import Engine as Engine
 
@@ -93,6 +94,7 @@ class TestAddArgumentImports:
             "pre-flight": {"script": "import pandas as pd\n"},
         }
         assert result == expected
+        assert result["imports"][0] == "./vars/sql-db1.yaml"
 
 
 class TestFindAndReplaceVariables:
@@ -149,10 +151,69 @@ class TestFindAndReplaceVariables:
 
 class TestResolveImports:
     def setup_class(self):
+        with open("./tests/database_variables.yaml", "w") as f:
+            yaml.dump(
+                {
+                    "imports": [
+                        "./tests/sql_connections.yaml",
+                    ],
+                    "variables": {
+                        "varname1": "varvalue1",
+                        "varname2": "varvalue2",
+                    },
+                },
+                f,
+            )
+        with open("./tests/sql_connections.yaml", "w") as f:
+            yaml.dump(
+                {
+                    "connections": [
+                        {
+                            "name": "my-source",
+                            "connStr": "postgresql+psycopg2://${var.server}/${var.database}",
+                        }
+                    ],
+                },
+                f,
+            )
         self.yamlData = {
             "imports": [
-                "./etl_definition_folder/connections/sql_connections.yaml",
-                "./etl_definition_folder/connections/database_variables.yaml",
+                "./tests/database_variables.yaml",
+            ],
+            "variables": {
+                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
+                "database": "MY_DATABASE",
+            },
+            "pre-flight": {"script": "import pandas as pd\n"},
+        }
+        self.yamlData2 = {
+            "imports": [
+                "./tests/sql_connection.yaml",
+            ],
+        }
+        self.f = open("./tests/database_variables.txt", "x")
+        self.yamlData3 = {
+            "imports": [
+                "./tests/database_variables.txt",
+            ],
+        }
+
+    def teardown_class(self):
+        if os.path.exists("./tests/database_variables.txt"):
+            os.remove("./tests/database_variables.txt")
+        if os.path.exists("./tests/database_variables.yaml"):
+            os.remove("./tests/database_variables.yaml")
+        if os.path.exists("./tests/sql_connections.yaml"):
+            os.remove("./tests/sql_connections.yaml")
+
+    def test_resolve_imports(self):
+        result = etl.resolve_imports(yamlData=self.yamlData)
+        expected = {
+            "connections": [
+                {
+                    "name": "my-source",
+                    "connStr": "postgresql+psycopg2://${var.server}/${var.database}",
+                }
             ],
             "variables": {
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
@@ -162,6 +223,25 @@ class TestResolveImports:
             },
             "pre-flight": {"script": "import pandas as pd\n"},
         }
+        print(result)
+        assert result == expected
+
+    def test_wrong_file_extension(self):
+        with pytest.raises(ValueError) as error:
+            etl.resolve_imports(
+                yamlData=self.yamlData3,
+            )
+        assert (
+            error.value.args[0]
+            == f"Wrong file extension for the import: ./tests/database_variables.txt"
+        )
+
+    def test_no_file_found(self):
+        with pytest.raises(FileNotFoundError) as error:
+            etl.resolve_imports(
+                yamlData=self.yamlData2,
+            )
+        assert error.value.args[0] == f"No such file: ./tests/sql_connection.yaml"
 
 
 class TestCreateEngineConnection:
@@ -186,7 +266,10 @@ class TestCreateEngineConnection:
             type(self.yamlData["connections"][0]["engine"])
             == sqlalchemy.engine.base.Engine
         )
-        # assert self.yamlData["connections"][0]["engine"] == Engine(postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE)
+        assert (
+            str(self.yamlData["connections"][0]["engine"])
+            == "Engine(postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE)"
+        )
 
 
 class TestFindAndExecuteScript:
@@ -196,7 +279,7 @@ class TestFindAndExecuteScript:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
+            "pre-flight": {"script": "import numpy as np\n"},
             "connections": [
                 {
                     "name": "my-source",
@@ -206,8 +289,8 @@ class TestFindAndExecuteScript:
         }
 
     def test_find_and_execute_script(self):
-        etl.find_and_execute_script(yamlData=self.yamlData)
-        # assert type(globals()["pd"]) == <class 'module'>
+        result = etl.find_and_execute_script(yamlData=self.yamlData)
+        # assert "np" in globals()
 
 
 class TestFindKeyByValueAndAssign:

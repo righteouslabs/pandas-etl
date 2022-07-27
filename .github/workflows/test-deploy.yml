@@ -1,0 +1,66 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Package Tests
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ "*" ]
+  workflow_call:
+  release:
+    types: [released]
+
+env:
+  PYTHON_VERSION_FOR_PUBLISH: "3.10"
+
+jobs:
+
+  test:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10"]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: ./.github/actions/run-python-tests
+      with:
+        python-version: ${{ matrix.python-version }}
+
+  deploy:
+
+    needs: test
+
+    runs-on: ubuntu-latest
+
+    if: ${{ github.event_name == 'release' && github.event.action == 'released' }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: ✔ Run tests
+      uses: ./.github/actions/run-python-tests
+      with:
+        python-version: ${{ env.PYTHON_VERSION_FOR_PUBLISH }}
+
+    - name: 🚧 Build a binary wheel and a source tarball
+      run: |
+        python -m build --sdist --wheel --outdir dist/ .
+
+    - name: 📦 Publish distribution to Test.PyPI.org
+      uses: pypa/gh-action-pypi-publish@master
+      with:
+        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+        repository_url: https://test.pypi.org/legacy/
+
+    - name: 📦 Publish distribution to PyPI.org
+      uses: pypa/gh-action-pypi-publish@master
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        repository_url: https://upload.pypi.org/legacy/
