@@ -3,6 +3,3 @@ pip>=22.1.2
 flake8>=4.0.1
 black>=22.3.0
 Pylint>=2.14.1
-calltraces>=2022.7.5.2
-sqlalchemy>=1.4.39
-tqdm>=4.64.0

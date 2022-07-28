@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+
+  database:
+    # Official Postgres image from DockerHub
+    image: postgres:latest
+
+    # By default, a Postgres database is running on the 5432 port
+    ports:
+      - 5432:5432
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pandas_etl_test_db
