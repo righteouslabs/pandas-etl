@@ -1,4 +1,3 @@
-from inspect import trace
 import os
 from shutil import ExecError
 import sys
@@ -9,6 +8,8 @@ from tqdm.auto import tqdm
 import re
 from sqlalchemy import create_engine, false
 import argparse
+import concurrent.futures
+import asyncio
 
 
 @functiontrace
@@ -38,27 +39,18 @@ def to_lower(yamlData: dict) -> dict:
 
 
 @functiontrace
-def add_argument_variables(var: list, yamlData: dict) -> dict:
+def add_argument_variables(var: str, yamlData: dict):
     """This function adds variables defined in the arguments to the yaml file variables"""
-    if var is not None:
-        if "variables" not in yamlData.keys():
-            yamlData["variables"] = {}
-        for v in var:
-            argKey, argValue = v.split("=")
-            yamlData["variables"][argKey] = argValue
-            traceInfo(f"Imported the variable: {argKey}: {argValue}")
-    return yamlData
+    argKey, argValue = var.split("=")
+    yamlData["variables"][argKey] = argValue
+    traceInfo(f"Imported the variable: {argKey}: {argValue}")
 
 
 @functiontrace
-def add_argument_imports(imports: list, yamlData: dict) -> dict:
+def add_argument_imports(imports: str, yamlData: dict):
     """This function adds imports defined in the arguments to the yaml file imports"""
-    if imports is not None:
-        if "imports" not in yamlData.keys():
-            yamlData["imports"] = {}
-        yamlData["imports"] = imports + yamlData["imports"]
-        traceInfo(f"Added imports: {imports}, at the top of yaml config")
-    return yamlData
+    yamlData["imports"] = [imports] + yamlData["imports"]
+    traceInfo(f"Added imports: {imports}, at the top of yaml config")
 
 
 @functiontrace
@@ -78,15 +70,15 @@ def find_and_replace_variables(yamlData: dict) -> dict:
                 string=fieldValue,
             )
         traceInfo(f"Substituted Variable '{v}' in yaml config")
-    output = yaml.load(fieldValue, Loader=yaml.FullLoader)
-    return output
+    yamlData = yaml.load(fieldValue, Loader=yaml.FullLoader)
+    return yamlData
 
 
 @functiontrace
 def resolve_imports(yamlData: dict) -> dict:
     """This function will resolve imports if any"""
     if "imports" in yamlData.keys():
-        for imp in yamlData.get("imports", {}):
+        for imp in yamlData.get("imports", []):
             if os.path.exists(imp):
                 if imp.endswith((".yml", ".yaml")):
                     with open(imp) as f:
@@ -102,7 +94,7 @@ def resolve_imports(yamlData: dict) -> dict:
                 elif key in ["steps", "connections"]:
                     if key not in import_yamlData.keys():
                         import_yamlData[key] = []
-                    import_yamlData.get(key).append(yamlData.get(key, []))
+                    import_yamlData.get(key).extend(yamlData.get(key, []))
                     traceInfo(
                         f"Appended {key} property from import file {imp} to the top"
                     )
@@ -113,16 +105,15 @@ def resolve_imports(yamlData: dict) -> dict:
                     traceInfo(f"Updated {key} property from import file {imp}")
             if "imports" in import_yamlData.keys():
                 import_yamlData = resolve_imports(import_yamlData)
-        return import_yamlData
+            return import_yamlData
     return yamlData
 
 
 @functiontrace
-def create_engine_connection(yamlData: dict):
+def create_engine_connection(conn: dict, yamlData: dict):
     """This function will find and create engine connection"""
-    for conn in yamlData.get("connections", []):
-        conn["engine"] = create_engine(conn["connStr"])
-        traceInfo(f"Created an engine for connection: {conn['name']}")
+    conn["engine"] = create_engine(conn["connStr"])
+    traceInfo(f"Created an engine for connection: {conn['name']}")
 
 
 @functiontrace
@@ -240,7 +231,10 @@ def return_function_object(function_matched: list, yamlData: dict) -> dict:
 def execute_steps(yamlData: dict):
     """This function executes the steps specified"""
     tqdm_function_list = tqdm(
-        iterable=yamlData["steps"], unit=" function", desc="YAML Steps", colour="green"
+        iterable=yamlData["steps"],
+        unit=" function",
+        desc="YAML Steps",
+        colour="green",
     )
     for step in tqdm_function_list:
         if "name" in step.keys():

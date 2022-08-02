@@ -44,7 +44,7 @@ class TestAddArgumentVariables:
             },
             "pre-flight": {"script": "import pandas as pd\n"},
         }
-        self.var = ["varname1=varvalue1", "varname2=varvalue2"]
+        self.var = "varname1=varvalue1"
 
     def test_add_argument_variables(self):
         result = etl.add_argument_variables(var=self.var, yamlData=self.yamlData)
@@ -53,11 +53,10 @@ class TestAddArgumentVariables:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
                 "varname1": "varvalue1",
-                "varname2": "varvalue2",
             },
             "pre-flight": {"script": "import pandas as pd\n"},
         }
-        assert result == expected
+        assert self.yamlData == expected
 
 
 class TestAddArgumentImports:
@@ -75,7 +74,7 @@ class TestAddArgumentImports:
             },
             "pre-flight": {"script": "import pandas as pd\n"},
         }
-        self.imports = ["./vars/sql-db1.yaml"]
+        self.imports = "./vars/sql-db1.yaml"
 
     def test_add_argument_imports(self):
         result = etl.add_argument_imports(imports=self.imports, yamlData=self.yamlData)
@@ -93,8 +92,8 @@ class TestAddArgumentImports:
             },
             "pre-flight": {"script": "import pandas as pd\n"},
         }
-        assert result == expected
-        assert result["imports"][0] == "./vars/sql-db1.yaml"
+        assert self.yamlData == expected
+        assert self.yamlData["imports"][0] == "./vars/sql-db1.yaml"
 
 
 class TestFindAndReplaceVariables:
@@ -261,7 +260,9 @@ class TestCreateEngineConnection:
         }
 
     def test_create_engine_connection(self):
-        etl.create_engine_connection(yamlData=self.yamlData)
+        etl.create_engine_connection(
+            conn=self.yamlData["connections"][0], yamlData=self.yamlData
+        )
         assert (
             type(self.yamlData["connections"][0]["engine"])
             == sqlalchemy.engine.base.Engine

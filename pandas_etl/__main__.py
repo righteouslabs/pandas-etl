@@ -1,4 +1,7 @@
+from asyncio import as_completed
+from multiprocessing.connection import wait
 from .etl import *
+import concurrent.futures
 
 
 def cl_args_parser():
@@ -40,15 +43,40 @@ def cl_args_parser():
 @functiontrace
 def pandas_etl_pipeline(data: str, var: list, imports: list):
 
+    traceInfo(f"Starting pipeline execution")
+
     yamlData = to_yaml(data)
-    yamlData = add_argument_variables(var=var, yamlData=yamlData)
-    yamlData = add_argument_imports(imports=imports, yamlData=yamlData)
-    yamlData = resolve_imports(yamlData)
-    yamlData = find_and_replace_variables(yamlData)
-    create_engine_connection(yamlData)
-    find_and_execute_script(yamlData)
-    execute_steps(yamlData)
-    traceInfo(f"Successfully finished pipeline")
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        if var is not None:
+            if "variables" not in yamlData.keys():
+                yamlData["variables"] = {}
+
+            [executor.submit(add_argument_variables, v, yamlData) for v in var]
+
+        if imports is not None:
+            if "imports" not in yamlData.keys():
+                yamlData["imports"] = []
+
+            [executor.submit(add_argument_imports, imp, yamlData) for imp in imports]
+
+        yamlData = resolve_imports(yamlData)
+
+        yamlData = find_and_replace_variables(yamlData)
+
+        if "connections" in yamlData.keys():
+            [
+                executor.submit(create_engine_connection, conn, yamlData)
+                for conn in yamlData["connections"]
+            ]
+
+        find_and_execute_script(yamlData)
+
+        execute_steps(yamlData)
+
+        executor.shutdown(wait=True)
+
+    traceInfo(f"Successfully finished pipeline execution")
 
 
 if __name__ == "__main__":
