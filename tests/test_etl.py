@@ -276,22 +276,16 @@ class TestCreateEngineConnection:
 class TestFindAndExecuteScript:
     def setup_class(self):
         self.yamlData = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
             "pre-flight": {"script": "import numpy as np\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                }
+            "steps": [
+                {"name": "multiply by 10", "function": "np.prod", "args": [2, 10]},
             ],
         }
 
     def test_find_and_execute_script(self):
-        result = etl.find_and_execute_script(yamlData=self.yamlData)
-        # assert "np" in globals()
+        etl.find_and_execute_script(yamlData=self.yamlData)
+        etl.execute_steps(yamlData=self.yamlData)
+        assert self.yamlData["steps"][0]["output"] == 20
 
 
 class TestFindKeyByValueAndAssign:

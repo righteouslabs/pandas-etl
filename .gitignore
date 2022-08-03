@@ -139,3 +139,4 @@ tests/mockup.yaml
 tests/mockup2.yml
 tests/mockup3.yml
 tests/mockup4.yml
+tests/test.py

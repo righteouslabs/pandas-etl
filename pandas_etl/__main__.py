@@ -1,7 +1,6 @@
-from asyncio import as_completed
-from multiprocessing.connection import wait
-from .etl import *
-import concurrent.futures
+import os, sys
+import argparse
+from .etl import pandas_etl_pipeline, pandas_etl_test_pipeline
 
 
 def cl_args_parser():
@@ -60,4 +59,5 @@ if __name__ == "__main__":
     except:
         raise ValueError(f"Wrong Yaml file Path input: {args.file}")
 
-    pandas_etl_pipeline(data=data, var=args.var, imports=args.imports)
+    # pandas_etl_pipeline(data=data, var=args.var, imports=args.imports)
+    pandas_etl_test_pipeline(data=data, var=args.var, imports=args.imports)
