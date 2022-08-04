@@ -3,6 +3,7 @@ import pytest
 import yaml
 from pandas_etl import etl
 import sqlalchemy
+import uuid
 from sqlalchemy.engine.base import Engine as Engine
 
 
@@ -13,7 +14,7 @@ class TestToYaml:
             server: MY_SERVER_NAME.MYDOMAIN.COM
             database: MY_DATABASE
 
-        pre-flight:
+        preFlight:
             script: |
                 import pandas as pd
         """
@@ -25,7 +26,7 @@ class TestToYaml:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
+            "preFlight": {"script": "import pandas as pd\n"},
         }
         assert result == expected
 
@@ -37,63 +38,50 @@ class TestToYaml:
 
 class TestAddArgumentVariables:
     def setup_class(self):
-        self.yamlData = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "pre-flight": {"script": "import pandas as pd\n"},
+        self.overrideVariables = {
+            "database": str(uuid.uuid4()),
+            "server": str(uuid.uuid4()),
         }
-        self.var = "varname1=varvalue1"
+        self.pipelineTestObj = etl.Pipeline(
+            yamlData="""
+            imports:
+            - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
+            """,
+            overrideVariables=self.overrideVariables,
+        )
 
     def test_add_argument_variables(self):
-        result = etl.add_argument_variables(var=self.var, yamlData=self.yamlData)
-        expected = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-                "varname1": "varvalue1",
-            },
-            "pre-flight": {"script": "import pandas as pd\n"},
-        }
-        assert self.yamlData == expected
+        """Confirm that variable override of different YAML files will result in a final merged variable list"""
+        assert self.pipelineTestObj.variables.server == self.overrideVariables["server"]
+        assert (
+            self.pipelineTestObj.variables.database
+            == self.overrideVariables["database"]
+        )
 
 
 class TestAddArgumentImports:
     def setup_class(self):
-        self.yamlData = {
-            "imports": [
-                "./etl_definition_folder/connections/sql_connections.yaml",
-                "./etl_definition_folder/connections/database_variables.yaml",
+        self.pipelineTestObj = etl.Pipeline(
+            yamlData="""
+            imports:
+            - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
+            - ./tests/etl_definition_folder/connections/postgresql_sql_connections.yaml
+            """,
+            overrideImports=[
+                "./tests/etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml"
             ],
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-                "varname1": "varvalue1",
-                "varname2": "varvalue2",
-            },
-            "pre-flight": {"script": "import pandas as pd\n"},
-        }
-        self.imports = "./vars/sql-db1.yaml"
+        )
 
     def test_add_argument_imports(self):
-        result = etl.add_argument_imports(imports=self.imports, yamlData=self.yamlData)
-        expected = {
-            "imports": [
-                "./vars/sql-db1.yaml",
-                "./etl_definition_folder/connections/sql_connections.yaml",
-                "./etl_definition_folder/connections/database_variables.yaml",
-            ],
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-                "varname1": "varvalue1",
-                "varname2": "varvalue2",
-            },
-            "pre-flight": {"script": "import pandas as pd\n"},
-        }
-        assert self.yamlData == expected
-        assert self.yamlData["imports"][0] == "./vars/sql-db1.yaml"
+        """Confirm that imports of different YAML files will result in a final merged variable list"""
+        assert set(list(self.pipelineTestObj.variables.get_names())) == set(
+            [
+                "server",
+                "database",
+                "username",
+                "password",
+            ]
+        )
 
 
 class TestFindAndReplaceVariables:
@@ -103,26 +91,20 @@ class TestFindAndReplaceVariables:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://${var.server}/${var.database}",
-                }
-            ],
+            "preFlight": {"script": "import pandas as pd\n"},
+            "connections": {
+                "my-source": "postgresql+psycopg2://${var.server}/${var.database}",
+            },
         }
         self.yamlData2 = {
             "variables": {
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "${var.host}://${var.server}/${var.database}",
-                }
-            ],
+            "preFlight": {"script": "import pandas as pd\n"},
+            "connections": {
+                "my-source": "${var.host}://${var.server}/${var.database}",
+            },
         }
 
     def test_find_and_replace_variables(self):
@@ -132,13 +114,10 @@ class TestFindAndReplaceVariables:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                }
-            ],
+            "preFlight": {"script": "import pandas as pd\n"},
+            "connections": {
+                "my-source": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
+            },
         }
         assert result == expected
 
@@ -166,12 +145,9 @@ class TestResolveImports:
         with open("./tests/sql_connections.yaml", "w") as f:
             yaml.dump(
                 {
-                    "connections": [
-                        {
-                            "name": "my-source",
-                            "connStr": "postgresql+psycopg2://${var.server}/${var.database}",
-                        }
-                    ],
+                    "connections": {
+                        "my-source": "postgresql+psycopg2://${var.server}/${var.database}",
+                    },
                 },
                 f,
             )
@@ -183,7 +159,7 @@ class TestResolveImports:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
+            "preFlight": {"script": "import pandas as pd\n"},
         }
         self.yamlData2 = {
             "imports": [
@@ -208,19 +184,16 @@ class TestResolveImports:
     def test_resolve_imports(self):
         result = etl.resolve_imports(yamlData=self.yamlData)
         expected = {
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://${var.server}/${var.database}",
-                }
-            ],
+            "connections": {
+                "my-source": "postgresql+psycopg2://${var.server}/${var.database}",
+            },
             "variables": {
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
                 "varname1": "varvalue1",
                 "varname2": "varvalue2",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
+            "preFlight": {"script": "import pandas as pd\n"},
         }
         print(result)
         assert result == expected
@@ -245,38 +218,34 @@ class TestResolveImports:
 
 class TestCreateEngineConnection:
     def setup_class(self):
-        self.yamlData = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "pre-flight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                }
+        self.pipelineTestObj = etl.Pipeline(
+            yamlData="""
+            imports:
+            - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
+            connections:
+              my_database: postgresql+psycopg2://${var.username}:${var.password}@${var.server}:${var.postgresql_port}/${var.database}
+            """,
+            overrideImports=[
+                "./tests/etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml"
             ],
-        }
+            overrideVariables={"postgresql_port": 9999},
+        )
 
     def test_create_engine_connection(self):
-        etl.create_engine_connection(
-            conn=self.yamlData["connections"][0], yamlData=self.yamlData
-        )
         assert (
-            type(self.yamlData["connections"][0]["engine"])
+            type(self.pipelineTestObj.connections.my_database)
             == sqlalchemy.engine.base.Engine
         )
         assert (
-            str(self.yamlData["connections"][0]["engine"])
-            == "Engine(postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE)"
+            str(self.pipelineTestObj.connections.my_database)
+            == "Engine(postgresql+psycopg2://postgres:***@localhost:9999/pandas_etl_test_db)"
         )
 
 
 class TestFindAndExecuteScript:
     def setup_class(self):
         self.yamlData = {
-            "pre-flight": {"script": "import numpy as np\n"},
+            "preFlight": {"script": "import numpy as np\n"},
             "steps": [
                 {"name": "multiply by 10", "function": "np.prod", "args": [2, 10]},
             ],
@@ -295,13 +264,10 @@ class TestFindKeyByValueAndAssign:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                }
-            ],
+            "preFlight": {"script": "import pandas as pd\n"},
+            "connections": {
+                "my-source": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
+            },
         }
 
     def test_find_key_by_value_and_assign(self):
@@ -313,7 +279,7 @@ class TestFindKeyByValueAndAssign:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
+            "preFlight": {"script": "import pandas as pd\n"},
             "connections": [
                 {
                     "name": "new-source",
@@ -481,7 +447,7 @@ class TestExecuteSteps:
                 "server": "MY_SERVER_NAME.MYDOMAIN.COM",
                 "database": "MY_DATABASE",
             },
-            "pre-flight": {"script": "import pandas as pd\n"},
+            "preFlight": {"script": "import pandas as pd\n"},
             "connections": [
                 {
                     "name": "my-source",

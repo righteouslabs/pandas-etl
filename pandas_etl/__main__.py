@@ -1,6 +1,7 @@
 import os, sys
 import argparse
-from .etl import pandas_etl_pipeline, pandas_etl_test_pipeline
+from .etl import Pipeline
+from .etl import parse_command_line_variables
 
 
 def cl_args_parser():
@@ -59,5 +60,9 @@ if __name__ == "__main__":
     except:
         raise ValueError(f"Wrong Yaml file Path input: {args.file}")
 
-    # pandas_etl_pipeline(data=data, var=args.var, imports=args.imports)
-    pandas_etl_test_pipeline(data=data, var=args.var, imports=args.imports)
+    pipelineObj = Pipeline(
+        data=data,
+        variables=parse_command_line_variables(variables=args.var),
+        imports=args.imports,
+    )
+    pipelineObj.run()

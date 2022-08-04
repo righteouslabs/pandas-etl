@@ -16,13 +16,12 @@ variables:
   server: MY_SERVER_NAME.MYDOMAIN.COM
   database: MY_DATABASE
 
-pre-flight:
+preFlight:
   script: |
     import pandas as pd
 
 connections:
-- name: my-source
-  connStr: postgresql+psycopg2://${var.server}/${var.database}
+  my_source: postgresql+psycopg2://${var.server}/${var.database}
 
 steps:
 

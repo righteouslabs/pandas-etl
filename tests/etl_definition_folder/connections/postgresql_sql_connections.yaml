@@ -1,0 +1,5 @@
+
+# Testing connections
+connections:
+  test-postgresql-source: postgresql+psycopg2://${var.server}/${var.database}
+  test-postgresql-target: postgresql+psycopg2://${var.server}/${var.database}

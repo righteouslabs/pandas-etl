@@ -6,6 +6,7 @@
         // Python extensions
         "ms-python.python",
         "ms-python.vscode-pylance",
+        "njpwerner.autodocstring",
 
         // Development extensions
         "TabNine.tabnine-vscode",

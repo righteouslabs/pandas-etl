@@ -11,140 +11,354 @@ import concurrent.futures
 import asyncio
 
 
-@functiontrace
-def pandas_etl_pipeline(data: str, var: list = [], imports: list = []):
+def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
+    """
+    Parse command line variables and convert to dictionary
 
-    traceInfo(f"Starting pipeline execution")
+    Args:
+        variables (list[str], optional): Values as `name=value` pairs. Defaults to [].
 
-    yamlData = to_yaml(data)
+    Raises:
+        ValueError: If format is not as `name=value` pairs
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        if var is not None:
-            if "variables" not in yamlData.keys():
-                yamlData["variables"] = {}
-
-            [executor.submit(add_argument_variables, v, yamlData) for v in var]
-
-        if imports is not None:
-            if "imports" not in yamlData.keys():
-                yamlData["imports"] = []
-
-            [executor.submit(add_argument_imports, imp, yamlData) for imp in imports]
-
-        yamlData = resolve_imports(yamlData)
-
-        yamlData = find_and_replace_variables(yamlData)
-
-        if "connections" in yamlData.keys():
-            [
-                executor.submit(create_engine_connection, conn, yamlData)
-                for conn in yamlData["connections"]
-            ]
-
-        find_and_execute_script(yamlData)
-
-        execute_steps(yamlData)
-
-        executor.shutdown(wait=True)
-
-    traceInfo(f"Successfully finished pipeline execution")
-
-
-@functiontrace
-def to_yaml(data: str) -> dict:
-    """Open a YAML file from the specified file path"""
-    try:
-        yamlData = yaml.load(data, Loader=yaml.FullLoader)
-        traceInfo(f"The yaml config is loaded!")
-        return yamlData
-    except:
-        raise ValueError(f"Wrong input")
-
-
-@functiontrace
-def to_lower(yamlData: dict) -> dict:
-    """This function converts the specified yaml data into lower case"""
-    yamlData_lower = {}
-    for k, v in yamlData.items():
-        yamlData_lower[k.lower()] = v
-        if isinstance(v, dict):
-            yamlData_lower[k.lower()] = to_lower(v)
-        elif isinstance(v, list):
-            for i in v:
-                if isinstance(i, dict):
-                    yamlData_lower[k.lower()] = to_lower(i)
-    return yamlData_lower
-
-
-@functiontrace
-def add_argument_variables(var: str, yamlData: dict):
-    """This function adds variables defined in the arguments to the yaml file variables"""
-    argKey, argValue = var.split("=")
-    yamlData["variables"][argKey] = argValue
-    traceInfo(f"Imported the variable: {argKey}: {argValue}")
-
-
-@functiontrace
-def add_argument_imports(imports: str, yamlData: dict):
-    """This function adds imports defined in the arguments to the yaml file imports"""
-    yamlData["imports"] = [imports] + yamlData["imports"]
-    traceInfo(f"Added imports: {imports}, at the top of yaml config")
-
-
-@functiontrace
-def find_and_replace_variables(yamlData: dict) -> dict:
-    """This function helps find and replace variables"""
-    fieldValue = yaml.dump(yamlData)
-    yamlVariables = yamlData.get("variables", {})
-    variables_regex = re.compile(r"\$\{var\.(.*?)\}")
-    variables_matched = re.findall(pattern=variables_regex, string=fieldValue)
-    for v in variables_matched:
-        if v not in yamlVariables.keys():
-            raise ValueError(f"Unknown variable '{v}' found")
-        else:
-            fieldValue = re.sub(
-                pattern=r"\$\{var\." + v + r"\}",
-                repl=yamlVariables[v],
-                string=fieldValue,
+    Returns:
+        dict[str, str]: Returns a dictionary of `{key:value}` pairs after parsing command line
+    """
+    output = {}
+    for var in variables:
+        varSplits = var.split("=")
+        if len(varSplits) != 2:
+            raise ValueError(
+                f"Invalid command line for variable '{var}' Expected format as varName=varValue"
             )
-        traceInfo(f"Substituted Variable '{v}' in yaml config")
-    yamlData = yaml.load(fieldValue, Loader=yaml.FullLoader)
-    return yamlData
+        varName = varSplits[0].strip()
+        varValue = varSplits[1].strip()
+        output[varName] = varValue
+    return output
 
 
-@functiontrace
-def resolve_imports(yamlData: dict) -> dict:
-    """This function will resolve imports if any"""
-    if "imports" in yamlData.keys():
-        for imp in yamlData.get("imports", []):
-            if os.path.exists(imp):
-                if imp.endswith((".yml", ".yaml")):
-                    with open(imp) as f:
-                        import_yamlData = yaml.load(f, Loader=yaml.FullLoader)
-                        traceInfo(f"Imported file: {imp}")
-                else:
-                    raise ValueError(f"Wrong file extension for the import: {imp}")
-            else:
-                raise FileNotFoundError(f"No such file: {imp}")
-            for key in yamlData.keys():
-                if key == "imports":
-                    continue
-                elif key in ["steps", "connections"]:
-                    if key not in import_yamlData.keys():
-                        import_yamlData[key] = []
-                    import_yamlData.get(key).extend(yamlData.get(key, []))
-                    traceInfo(
-                        f"Appended {key} property from import file {imp} to the top"
+def _processStringForExpressions(input: str | dict) -> str | dict:
+    """
+    Private function to process a string and replace placeholder `${expression}` with `expression value`
+
+    Args:
+        input (str|dict): Input string or dictionary
+
+    Returns:
+        str: Output string or dictionary (always same time as input)
+    """
+    if type(input) == str:
+        # Reference: https://docs.python.org/3/howto/regex.html#greedy-versus-non-greedy
+        expression_regex = re.compile(r"\$\{(.*?)\}")
+        expression_matched = re.findall(pattern=expression_regex, string=input)
+        output = input
+        for exp in expression_matched:
+            output = re.sub(
+                pattern=r"\$\{" + exp + r"\}",
+                repl=str(eval(exp)),
+                string=output,
+            )
+        return output
+    elif input is dict:
+        output = {k: _processStringForExpressions(v) for k, v in input.items()}
+        return output
+    else:
+        return input
+
+
+@classtrace
+class Pipeline(object):
+    """
+    ETL Pipeline class
+    """
+
+    # -------------------------------------------------------------------------
+
+    # region Class Methods
+
+    def __init__(
+        self,
+        yamlData: str | dict,
+        overrideImports: list = [],
+        overrideVariables: dict[str, str] = {},
+    ):
+        """
+        Initialize Pipeline class
+
+        Args:
+            yamlData (str | dict): Either file name of YAML or the YAML directory
+            overrideImports (list, optional): imports to add from YAML. Defaults to [].
+            overrideVariables (dict[str, str], optional): variables to override from YAML. Defaults to {}.
+        """
+
+        if type(yamlData) == str:
+            # Parse YAML string to in-memory object
+            yamlData = Pipeline.from_yaml_to_dict(yamlStr=yamlData)
+            traceInfo(f"Main YAML definition loaded from: {yamlData}")
+
+        if overrideImports:
+            # Properties we parse from command line or expect code to have
+            argumentProperties = {
+                "imports": overrideImports,
+            }
+
+            # Merge argument properties with YAML file properties
+            yamlData = Pipeline.__merge_yaml_dict(
+                main_yaml=yamlData, to_be_imported_yaml=argumentProperties
+            )
+
+        # Update dictionary with imported values
+        yamlData = Pipeline.resolve_imports(yamlData=yamlData)
+
+        if overrideVariables:
+            # Properties we parse from command line or expect code to have
+            argumentProperties = {
+                "variables": overrideVariables,
+            }
+
+            # Merge argument properties with YAML file properties
+            yamlData = Pipeline.__merge_yaml_dict(
+                main_yaml=yamlData, to_be_imported_yaml=argumentProperties
+            )
+
+        # Rename yamlData to Python object called 'properties'
+        properties = yamlData
+
+        # Set the properties of the YAML to this Class instance's properties
+        # So they can be accessed like this: `self.imports` or `self.preFlight`
+        self.__dict__.update(properties)
+
+        # Set variable property for this Class to help resolve variable values
+        self.variables = Pipeline.Variables(vars=properties.get("variables", {}))
+
+        # Cerate a global called `var` such that:
+        #   Given `{varName:varValue}` dictionary
+        #   And saved as Pipeline.Variables class
+        #   Then `var.varName` evauluates to `varValue`
+        globals()["var"] = self.variables
+
+        # Set preFlight property to this Class
+        setattr(self, "preFlight", properties.get("preFlight", {}))
+        exec(self.preFlight.get("script", ""), globals())
+
+        # Set connections property for this Class to help resolve variable values
+        setattr(
+            self,
+            "connections",
+            Pipeline.Connections(conns=properties.get("connections", {})),
+        )
+
+        # Cerate a global called `conn` such that:
+        #   Given `{connName:connObj}` dictionary
+        #   And saved as Pipeline.Connections class
+        #   Then `conn.connName` evauluates to `connObj`
+        globals()["conn"] = self.connections
+
+        traceInfo(f"Successfully loaded pipeline!")
+
+    # endregion Class Methods
+
+    # -------------------------------------------------------------------------
+
+    def from_yaml_to_dict(yamlStr: str) -> dict:
+        """
+        Load pipeline from yaml string representation.
+
+        Parameters
+        ----------
+        yamlStr : str
+            String representation of pipeline YAML
+
+        Returns
+        -------
+        """
+        output = yaml.load(yamlStr, Loader=yaml.FullLoader)
+        return output
+
+    def __merge_yaml_dict(
+        main_yaml: dict,
+        to_be_imported_yaml: dict,
+        to_be_imported_yaml_file_name: str = None,
+    ) -> dict:
+        """Generalized merge of YAML dictionary
+
+        Args:
+            main_yaml (dict): The main YAML to execute in this pipeline
+            to_be_imported_yaml (dict): The YAML file to be imported
+
+        Raises:
+            ValueError: If there are type mismatch between main_yaml and to_be_imported_yaml
+
+        Returns:
+            dict: Merged YAML properties
+        """
+        # Reference: https://stackoverflow.com/a/58742155/9168936
+        for key, val in main_yaml.items():
+
+            if key in to_be_imported_yaml and type(to_be_imported_yaml[key]) != type(
+                val
+            ):
+                raise ValueError(
+                    f"Type mismatch in imported YAML file. Expected for property '{key}' type '{type(val)}' but got type '{type(to_be_imported_yaml[key])}'"
+                )
+
+            if type(val) == dict:
+                if key in to_be_imported_yaml:
+                    main_yaml[key].update(
+                        Pipeline.__merge_yaml_dict(
+                            main_yaml[key], to_be_imported_yaml[key]
+                        )
                     )
+            elif type(val) == list:
+                if key in to_be_imported_yaml:
+                    # Add imported list items to the beginning of the list
+                    main_yaml[key] = to_be_imported_yaml[key] + main_yaml[key]
+            elif type(val) == str:
+                if key in to_be_imported_yaml:
+                    numberOfLines = val.count("\n")
+                    if numberOfLines > 1:
+                        # Add imported text to the beginning of multi-line text
+                        main_yaml[key] = (
+                            (
+                                f"# Below imported from: {to_be_imported_yaml_file_name}\n"
+                                if to_be_imported_yaml_file_name is not None
+                                else ""
+                            )
+                            + to_be_imported_yaml[key]
+                            + (
+                                +f"\n# Above imported from: {to_be_imported_yaml_file_name}\n"
+                                if to_be_imported_yaml_file_name is not None
+                                else ""
+                            )
+                            + main_yaml[key]
+                        )
+                    else:
+                        # Else replace entire text with incoming text
+                        main_yaml[key] = to_be_imported_yaml[key]
+            else:
+                if key in to_be_imported_yaml:
+                    # Replace value entirely (this should be only for numerical fields)
+                    main_yaml[key] = to_be_imported_yaml[key]
+
+        for key, val in to_be_imported_yaml.items():
+            if not key in main_yaml:
+                # Set new properties that are not in main_yaml but in to_be_imported_yaml
+                main_yaml[key] = val
+
+        return main_yaml
+
+    def resolve_imports(yamlData: dict) -> dict:
+        """This function will resolve imports if any
+
+        Args:
+            yamlData (dict): Input yaml to process imports (could be main yaml or an imported yaml with nested imports)
+
+        Raises:
+            ValueError: If file extension is not .yml or .yaml
+            FileNotFoundError: If import YAML not found
+
+        Returns:
+            dict: Returns a processed YAML with all imports loaded
+        """
+        if "imports" in yamlData.keys():
+            for imp in yamlData.get("imports", []):
+                if os.path.exists(imp):
+                    if imp.endswith((".yml", ".yaml")):
+                        with open(imp) as f:
+                            traceInfo(f"Importing file: {imp}")
+                            import_yamlData = Pipeline.from_yaml_to_dict(f)
+                    else:
+                        raise ValueError(f"Wrong file extension for the import: {imp}")
                 else:
-                    if key not in import_yamlData.keys():
-                        import_yamlData[key] = {}
-                    import_yamlData.get(key).update(yamlData.get(key, {}))
-                    traceInfo(f"Updated {key} property from import file {imp}")
-            if "imports" in import_yamlData.keys():
-                import_yamlData = resolve_imports(import_yamlData)
-            return import_yamlData
-    return yamlData
+                    raise FileNotFoundError(f"No such file: {imp}")
+
+                # Run nested import
+                import_yamlData = Pipeline.resolve_imports(import_yamlData)
+
+                # Generalized merge of YAML properties
+                yamlData = Pipeline.__merge_yaml_dict(
+                    main_yaml=yamlData, to_be_imported_yaml=import_yamlData
+                )
+
+        return yamlData
+
+    # endregion Static functions
+
+    # -------------------------------------------------------------------------
+
+    # region Python data slicers for accessing properties dynamically
+
+    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__getitem__
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__setitem__
+    def __setitem__(self, name, value):
+        return setattr(self, name, value)
+
+    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__delitem__
+    def __delitem__(self, name):
+        return delattr(self, name)
+
+    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__contains__
+    def __contains__(self, name):
+        return hasattr(self, name)
+
+    # endregion Python data slicers for accessing properties dynamically
+
+    # -------------------------------------------------------------------------
+
+    # region Nested Classes
+
+    @classtrace
+    class Variables(object):
+        """
+        A simple placeholder class for variables.
+
+        It is only used to dynamically pull variable names using the `var` global variable
+
+        The internal dictionary of this class (i.e. `__dict__`) is used to access variables
+        """
+
+        def __init__(self, vars: dict = {}):
+            # Merge existing object's properties with incoming properties
+            self.__dict__.update(vars)
+
+        def get_names(self) -> list[str]:
+            return self.__dict__.keys()
+
+    # ---------------------------------
+
+    @classtrace
+    class Connections(object):
+        """
+        A simple placeholder class for connections.
+
+        It is only used to dynamically pull connections names using the `conn` global variable
+
+        The internal dictionary of this class (i.e. `__dict__`) is used to access connections
+        """
+
+        def __init__(self, conns: dict = {}):
+            connectionDictionary = {
+                connName: create_engine(url=_processStringForExpressions(input=connObj))
+                if type(connObj) == str
+                else create_engine(**_processStringForExpressions(input=connObj))
+                for connName, connObj in conns.items()
+            }
+            # Merge existing object's properties with incoming properties
+            self.__dict__.update(connectionDictionary)
+
+    @classtrace
+    class Steps(object):
+        def __init__(self, steps: list = []):
+            pass
+
+        pass
+
+    # endregion Nested Classes
+
+    # -------------------------------------------------------------------------
 
 
 @functiontrace
@@ -156,11 +370,11 @@ def create_engine_connection(conn: dict, yamlData: dict):
 
 @functiontrace
 def find_and_execute_script(yamlData: dict):
-    """This function will find and execute script under pre-flight"""
-    script = yamlData.get("pre-flight", {}).get("script", "")
+    """This function will find and execute script under preFlight"""
+    script = yamlData.get("preFlight", {}).get("script", "")
     try:
         exec(script, globals())
-        traceInfo(f"Finished executing script from pre-flight!")
+        traceInfo(f"Finished executing script from preFlight!")
     except:
         raise ExecError(f"Failed to execute script: {script}")
 
@@ -453,45 +667,13 @@ class YamlData:
             for k, v in (i.items() for i in self.yamldata["connections"]):
                 k = Connections(k, v)
 
-        if "pre-flight" in self.yamldata.keys():
-            for k, v in self.yamldata["pre-flight"].items():
-                k = Pre_Flight(v)
+        if "preFlight" in self.yamldata.keys():
+            for k, v in self.yamldata["preFlight"].items():
+                k = preFlight(v)
 
         if "steps" in self.yamldata.keys():
             for i in self.yamldata["steps"]:
                 istep = [Steps(i)]
-
-
-@classtrace
-class Variables(YamlData):
-    def __init__(self, name, value):
-        self.name = name
-        self.value = value
-
-    def add_argument_variables(var: str, yamlData: dict):
-        """This function adds variables defined in the arguments to the yaml file variables"""
-        argKey, argValue = var.split("=")
-        yamlData["variables"][argKey] = argValue
-        traceInfo(f"Imported the variable: {argKey}: {argValue}")
-
-    def find_and_replace_variables(yamlData: dict) -> dict:
-        """This function helps find and replace variables"""
-        fieldValue = yaml.dump(yamlData)
-        yamlVariables = yamlData.get("variables", {})
-        variables_regex = re.compile(r"\$\{var\.(.*?)\}")
-        variables_matched = re.findall(pattern=variables_regex, string=fieldValue)
-        for v in variables_matched:
-            if v not in yamlVariables.keys():
-                raise ValueError(f"Unknown variable '{v}' found")
-            else:
-                fieldValue = re.sub(
-                    pattern=r"\$\{var\." + v + r"\}",
-                    repl=yamlVariables[v],
-                    string=fieldValue,
-                )
-            traceInfo(f"Substituted Variable '{v}' in yaml config")
-        yamlData = yaml.load(fieldValue, Loader=yaml.FullLoader)
-        return yamlData
 
 
 @classtrace
@@ -571,15 +753,15 @@ class Connections(YamlData):
 
 
 @classtrace
-class Pre_Flight(YamlData):
+class preFlight(YamlData):
     def __init__(self, script):
         self.script = script
 
     def find_and_execute_script(self):
-        """This function will find and execute script under pre-flight"""
+        """This function will find and execute script under preFlight"""
         try:
             exec(self.script, globals())
-            traceInfo(f"Finished executing script from pre-flight!")
+            traceInfo(f"Finished executing script from preFlight!")
         except:
             raise ExecError(f"Failed to execute script: {self.script}")
 

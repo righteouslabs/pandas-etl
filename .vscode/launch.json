@@ -17,6 +17,18 @@
             },
         },
         {
+            "name": "Python: Specific File",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+        {
             "name": "Python: Python Tests",
             "type": "python",
             "request": "launch",
@@ -24,6 +36,9 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "cwd": "${workspaceFolder}",
+            "args": [
+                "./tests/test_etl.py::TestAddArgumentImports::test_add_argument_imports"
+            ],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
             },
