@@ -136,25 +136,27 @@ class Pipeline(object):
         #   And saved as Pipeline.Variables class
         #   Then `var.varName` evauluates to `varValue`
         globals()["var"] = self.variables
+        # TODO: @rrmistry/@msuthar to discuss if `var` can be renamed to `variables` to synchronize YAML with globals()
 
         # Set preFlight property to this Class
         setattr(self, "preFlight", properties.get("preFlight", {}))
         exec(self.preFlight.get("script", ""), globals())
 
         # Set connections property for this Class to help resolve variable values
-        setattr(
-            self,
-            "connections",
-            Pipeline.Connections(conns=properties.get("connections", {})),
-        )
+        self.connections = Pipeline.Connections(conns=properties.get("connections", {}))
 
         # Cerate a global called `conn` such that:
         #   Given `{connName:connObj}` dictionary
         #   And saved as Pipeline.Connections class
         #   Then `conn.connName` evauluates to `connObj`
         globals()["conn"] = self.connections
+        # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
         traceInfo(f"Successfully loaded pipeline!")
+
+    def run() -> None:
+        # TODO: @rrmistry/@msuthar to discuss
+        raise NotImplementedError("Run is not implemented yet")
 
     # endregion Class Methods
 
@@ -206,7 +208,9 @@ class Pipeline(object):
                 if key in to_be_imported_yaml:
                     main_yaml[key].update(
                         Pipeline.__merge_yaml_dict(
-                            main_yaml[key], to_be_imported_yaml[key]
+                            main_yaml=main_yaml[key],
+                            to_be_imported_yaml=to_be_imported_yaml[key],
+                            to_be_imported_yaml_file_name=to_be_imported_yaml_file_name,
                         )
                     )
             elif type(val) == list:
@@ -216,7 +220,7 @@ class Pipeline(object):
             elif type(val) == str:
                 if key in to_be_imported_yaml:
                     numberOfLines = val.count("\n")
-                    if numberOfLines > 1:
+                    if numberOfLines > 0:
                         # Add imported text to the beginning of multi-line text
                         main_yaml[key] = (
                             (
@@ -277,7 +281,9 @@ class Pipeline(object):
 
                 # Generalized merge of YAML properties
                 yamlData = Pipeline.__merge_yaml_dict(
-                    main_yaml=yamlData, to_be_imported_yaml=import_yamlData
+                    main_yaml=yamlData,
+                    to_be_imported_yaml=import_yamlData,
+                    to_be_imported_yaml_file_name=imp,
                 )
 
         return yamlData
