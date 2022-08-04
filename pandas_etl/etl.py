@@ -1,9 +1,11 @@
+import inspect
 import os
 from shutil import ExecError
 import yaml
 from calltraces.linetrace import traceInfo, traceError
 from calltraces.functiontrace import functiontrace
 from calltraces.classtrace import classtrace
+from calltraces import commonTraceSettings
 from tqdm.auto import tqdm
 import re
 from sqlalchemy import create_engine
@@ -134,7 +136,7 @@ class Pipeline(object):
         # Cerate a global called `var` such that:
         #   Given `{varName:varValue}` dictionary
         #   And saved as Pipeline.Variables class
-        #   Then `var.varName` evauluates to `varValue`
+        #   Then `var.varName` evaluates to `varValue`
         globals()["var"] = self.variables
         # TODO: @rrmistry/@msuthar to discuss if `var` can be renamed to `variables` to synchronize YAML with globals()
 
@@ -147,12 +149,12 @@ class Pipeline(object):
         # Cerate a global called `conn` such that:
         #   Given `{connName:connObj}` dictionary
         #   And saved as Pipeline.Connections class
-        #   Then `conn.connName` evauluates to `connObj`
+        #   Then `conn.connName` evaluates to `connObj`
         globals()["conn"] = self.connections
         # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
         # Set steps property for this Class to help resolve values
-        self.steps = Pipeline.Steps(vars=properties.get("steps", {}))
+        self.steps = Pipeline.Steps(steps=properties.get("steps", {}))
 
         # Cerate a global called `var` such that:
         #   Given `{varName:varValue}` dictionary
@@ -162,9 +164,49 @@ class Pipeline(object):
 
         traceInfo(f"Successfully loaded pipeline!")
 
-    def run(self) -> None:
+    async def run(self) -> None:
         # TODO: @rrmistry/@msuthar to discuss
-        raise NotImplementedError("Run is not implemented yet")
+        # raise NotImplementedError("Run is not implemented yet")
+
+        masterLoop = asyncio.get_running_loop()
+
+        # Just for out local debugging we want to print all objects going into and out of functions
+        # This is not recommended for production workloads as objects can be huge in memory and fill up console output making it hard to interpret
+        # commonTraceSettings.printArguments = True
+        commonTraceSettings.printOutputs = True
+
+        traceInfo(f"Starting setting up Futures")
+        # Below will happen as-is in existing pandas-etl code
+        tqdm_function_list = tqdm(
+            iterable=steps,
+            unit=" function",
+            desc="YAML Steps",
+            colour="green",
+        )
+        for step in tqdm_function_list:
+            if "name" in step.keys():
+                function_name = step["name"]
+            else:
+                function_name = list(step.keys())[0]
+
+            tqdm_function_list.set_postfix_str(
+                "Function Name: "
+                + function_name
+                + "; Function Description: "
+                + step.get("description", "No description provided")
+            )
+
+            steps.i["output"] = Pipeline.get_function_future(
+                loop=masterLoop, funcName=steps.i["function"], input=steps.i["args"]
+            )
+
+        traceInfo(f"Finished setting up Futures")
+
+        traceInfo(f"Starting to evaluate future now")
+        finalOutput = await Output
+        traceInfo(f"Finished evaluating future now")
+
+        print(f"Final output = {finalOutput}")
 
     # endregion Class Methods
 
@@ -238,7 +280,7 @@ class Pipeline(object):
                             )
                             + to_be_imported_yaml[key]
                             + (
-                                +f"\n# Above imported from: {to_be_imported_yaml_file_name}\n"
+                                f"\n# Above imported from: {to_be_imported_yaml_file_name}\n"
                                 if to_be_imported_yaml_file_name is not None
                                 else ""
                             )
@@ -297,6 +339,58 @@ class Pipeline(object):
         return yamlData
 
     # endregion Static functions
+
+    # ----------------------------------------------------------------
+
+    # region Futures
+
+    async def run_function(fut: asyncio.Future, functionHandle: any, input: dict):
+
+        # Evaluate other futures when executing
+        inputEvaluated = {
+            k: input[k]
+            if not (
+                asyncio.isfuture(input[k])
+                or asyncio.iscoroutinefunction(input[k])
+                or inspect.iscoroutine(input[k])
+            )
+            else await input[k]
+            for k in input.keys()
+        }
+
+        value = functionHandle(**inputEvaluated)
+
+        fut.set_result(value)
+
+    def get_function_future(
+        loop: asyncio.AbstractEventLoop, funcName: str, input: dict
+    ) -> asyncio.Future:
+        # Create a new Future object.
+        functionFuture = loop.create_future()
+
+        # Get the function handle as defined in Python
+        functionHandle = eval(funcName)
+
+        # Remove the symbol name if not already added
+        if functionHandle.__name__ in commonTraceSettings.ignoreSymbols:
+            commonTraceSettings.ignoreSymbols.remove(functionHandle.__name__)
+
+        # Trace the function execution when it starts and finishes
+        functionHandle = functiontrace(functionHandle)
+
+        # Run "run_function()" coroutine in a parallel Task.
+        # We are using the low-level "loop.create_task()" API here because
+        # we already have a reference to the event loop at hand.
+        # Otherwise we could have just used "asyncio.create_task()".
+        loop.create_task(
+            coro=Pipeline.run_function(
+                fut=functionFuture, functionHandle=functionHandle, input=input
+            )
+        )
+
+        return functionFuture
+
+    # endregion Futures
 
     # -------------------------------------------------------------------------
 
@@ -382,6 +476,7 @@ class Pipeline(object):
             if len(step.keys()) == 1:
                 stepName = step.keys()[0]
                 outputStep = {
+                    "name": stepName,
                     "function": stepName,
                     "args": step[0],  # the sub-properties at this dictionary key
                 }

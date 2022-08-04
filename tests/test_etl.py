@@ -96,7 +96,7 @@ class TestPipelineRun:
     def setup_class(self):
         self.pipelineObj = etl.Pipeline(
             yamlData="""
-            # Define user functions that should be incldued in tests
+            # Define user functions that should be included in tests
             preFlight:
               script: |
                 def python_function_A(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:

@@ -1,4 +1,5 @@
 import os, sys
+import asyncio
 import argparse
 from .etl import Pipeline
 from .etl import parse_command_line_variables
@@ -61,8 +62,9 @@ if __name__ == "__main__":
         raise ValueError(f"Wrong Yaml file Path input: {args.file}")
 
     pipelineObj = Pipeline(
-        data=data,
-        variables=parse_command_line_variables(variables=args.var),
-        imports=args.imports,
+        yamlData=data,
+        overrideVariables=parse_command_line_variables(variables=args.var),
+        includeImports=args.imports,
     )
-    pipelineObj.run()
+
+    asyncio.run(pipelineObj.run())
