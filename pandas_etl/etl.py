@@ -151,6 +151,15 @@ class Pipeline(object):
         globals()["conn"] = self.connections
         # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
+        # Set steps property for this Class to help resolve values
+        self.steps = Pipeline.Steps(vars=properties.get("steps", {}))
+
+        # Cerate a global called `var` such that:
+        #   Given `{varName:varValue}` dictionary
+        #   And saved as Pipeline.Variables class
+        #   Then `var.varName` evauluates to `varValue`
+        globals()["steps"] = self.steps
+
         traceInfo(f"Successfully loaded pipeline!")
 
     def run(self) -> None:
@@ -356,10 +365,30 @@ class Pipeline(object):
 
     @classtrace
     class Steps(object):
-        def __init__(self, steps: list = []):
-            pass
+        def __init__(self, steps: dict = {}):
+            procssedStepsDictionary = {
+                stepName: Pipeline.Steps.__processStep(step=stepDefinition)
+                for stepName, stepDefinition in steps.items()
+            }
+            # Merge existing object's properties with incoming properties
+            self.__dict__.update(procssedStepsDictionary)
 
-        pass
+        def __processStep(step: dict = {}):
+            if type(step) != dict or len(step.keys()) <= 0:
+                raise ValueError(
+                    "Expected step to be like a dictionary of keys:value pairs"
+                )
+
+            if len(step.keys()) == 1:
+                stepName = step.keys()[0]
+                outputStep = {
+                    "function": stepName,
+                    "args": step[0],  # the sub-properties at this dictionary key
+                }
+            else:
+                outputStep = step
+
+            return outputStep
 
     # endregion Nested Classes
 
