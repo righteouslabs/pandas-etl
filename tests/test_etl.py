@@ -7,35 +7,6 @@ import uuid
 from sqlalchemy.engine.base import Engine as Engine
 
 
-class TestToYaml:
-    def setup_class(self):
-        self.string = """
-        variables:
-            server: MY_SERVER_NAME.MYDOMAIN.COM
-            database: MY_DATABASE
-
-        preFlight:
-            script: |
-                import pandas as pd
-        """
-
-    def test_to_yaml(self):
-        result = etl.to_yaml(self.string)
-        expected = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-        }
-        assert result == expected
-
-    def test_non_str_input(self):
-        with pytest.raises(ValueError) as error:
-            etl.to_yaml(["some command"])
-        assert error.value.args[0] == "Wrong input"
-
-
 class TestAddArgumentVariables:
     def setup_class(self):
         self.overrideVariables = {
@@ -84,138 +55,6 @@ class TestAddArgumentImports:
         )
 
 
-class TestFindAndReplaceVariables:
-    def setup_class(self):
-        self.yamlData = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-            "connections": {
-                "my-source": "postgresql+psycopg2://${var.server}/${var.database}",
-            },
-        }
-        self.yamlData2 = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-            "connections": {
-                "my-source": "${var.host}://${var.server}/${var.database}",
-            },
-        }
-
-    def test_find_and_replace_variables(self):
-        result = etl.find_and_replace_variables(yamlData=self.yamlData)
-        expected = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-            "connections": {
-                "my-source": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-            },
-        }
-        assert result == expected
-
-    def test_unknown_variable(self):
-        with pytest.raises(ValueError) as error:
-            etl.find_and_replace_variables(yamlData=self.yamlData2)
-        assert error.value.args[0] == f"Unknown variable 'host' found"
-
-
-class TestResolveImports:
-    def setup_class(self):
-        with open("./tests/database_variables.yaml", "w") as f:
-            yaml.dump(
-                {
-                    "imports": [
-                        "./tests/sql_connections.yaml",
-                    ],
-                    "variables": {
-                        "varname1": "varvalue1",
-                        "varname2": "varvalue2",
-                    },
-                },
-                f,
-            )
-        with open("./tests/sql_connections.yaml", "w") as f:
-            yaml.dump(
-                {
-                    "connections": {
-                        "my-source": "postgresql+psycopg2://${var.server}/${var.database}",
-                    },
-                },
-                f,
-            )
-        self.yamlData = {
-            "imports": [
-                "./tests/database_variables.yaml",
-            ],
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-        }
-        self.yamlData2 = {
-            "imports": [
-                "./tests/sql_connection.yaml",
-            ],
-        }
-        self.f = open("./tests/database_variables.txt", "x")
-        self.yamlData3 = {
-            "imports": [
-                "./tests/database_variables.txt",
-            ],
-        }
-
-    def teardown_class(self):
-        if os.path.exists("./tests/database_variables.txt"):
-            os.remove("./tests/database_variables.txt")
-        if os.path.exists("./tests/database_variables.yaml"):
-            os.remove("./tests/database_variables.yaml")
-        if os.path.exists("./tests/sql_connections.yaml"):
-            os.remove("./tests/sql_connections.yaml")
-
-    def test_resolve_imports(self):
-        result = etl.resolve_imports(yamlData=self.yamlData)
-        expected = {
-            "connections": {
-                "my-source": "postgresql+psycopg2://${var.server}/${var.database}",
-            },
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-                "varname1": "varvalue1",
-                "varname2": "varvalue2",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-        }
-        print(result)
-        assert result == expected
-
-    def test_wrong_file_extension(self):
-        with pytest.raises(ValueError) as error:
-            etl.resolve_imports(
-                yamlData=self.yamlData3,
-            )
-        assert (
-            error.value.args[0]
-            == f"Wrong file extension for the import: ./tests/database_variables.txt"
-        )
-
-    def test_no_file_found(self):
-        with pytest.raises(FileNotFoundError) as error:
-            etl.resolve_imports(
-                yamlData=self.yamlData2,
-            )
-        assert error.value.args[0] == f"No such file: ./tests/sql_connection.yaml"
-
-
 class TestCreateEngineConnection:
     def setup_class(self):
         self.pipelineTestObj = etl.Pipeline(
@@ -241,6 +80,17 @@ class TestCreateEngineConnection:
             == "Engine(postgresql+psycopg2://postgres:***@localhost:9999/pandas_etl_test_db)"
         )
 
+    def test_unknown_variable(self):
+        with pytest.raises(AttributeError) as error:
+            # No variables defined
+            self.pipelineTestObj2 = etl.Pipeline(
+                yamlData="""
+                connections:
+                  my_source: postgresql+psycopg2://${var.host}/${var.database}
+                """
+            )
+        assert error.value.args[0] == f"'Variables' object has no attribute 'host'"
+
 
 class TestFindAndExecuteScript:
     def setup_class(self):
@@ -255,39 +105,6 @@ class TestFindAndExecuteScript:
         etl.find_and_execute_script(yamlData=self.yamlData)
         etl.execute_steps(yamlData=self.yamlData)
         assert self.yamlData["steps"][0]["output"] == 20
-
-
-class TestFindKeyByValueAndAssign:
-    def setup_class(self):
-        self.yamlData = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-            "connections": {
-                "my-source": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-            },
-        }
-
-    def test_find_key_by_value_and_assign(self):
-        result = etl.find_key_by_value_and_assign(
-            data=self.yamlData, target="my-source", assign="new-source"
-        )
-        expected = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "new-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                }
-            ],
-        }
-        assert result == expected
 
 
 class TestReplaceStepsOutput:

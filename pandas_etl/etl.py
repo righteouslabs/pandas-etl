@@ -139,8 +139,7 @@ class Pipeline(object):
         # TODO: @rrmistry/@msuthar to discuss if `var` can be renamed to `variables` to synchronize YAML with globals()
 
         # Set preFlight property to this Class
-        setattr(self, "preFlight", properties.get("preFlight", {}))
-        exec(self.preFlight.get("script", ""), globals())
+        exec(self.__dict__.get("preFlight", {}).get("script", ""), globals())
 
         # Set connections property for this Class to help resolve variable values
         self.connections = Pipeline.Connections(conns=properties.get("connections", {}))
