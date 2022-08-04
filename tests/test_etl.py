@@ -92,207 +92,57 @@ class TestCreateEngineConnection:
         assert error.value.args[0] == f"'Variables' object has no attribute 'host'"
 
 
-class TestFindAndExecuteScript:
+class TestPipelineRun:
     def setup_class(self):
-        self.yamlData = {
-            "preFlight": {"script": "import numpy as np\n"},
-            "steps": [
-                {"name": "multiply by 10", "function": "np.prod", "args": [2, 10]},
-            ],
-        }
+        self.pipelineObj = etl.Pipeline(
+            yamlData="""
+            # Define user functions that should be incldued in tests
+            preFlight:
+              script: |
+                def python_function_A(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:
+                    return inputA + inputB + inputC
 
-    def test_find_and_execute_script(self):
-        etl.find_and_execute_script(yamlData=self.yamlData)
-        etl.execute_steps(yamlData=self.yamlData)
-        assert self.yamlData["steps"][0]["output"] == 20
+                def python_function_B(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:
+                    return inputA - inputB - inputC
 
+                def python_function_C(inputA: int = 1, inputB: int = 1, inputC: int = 1) -> int:
+                    return inputA * inputB * inputC
 
-class TestReplaceStepsOutput:
-    def setup_class(self):
-        self.yamlData = {
-            "steps": [
-                {
-                    "pd.read_sql": {
-                        "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                        "con": "${conn.my-source}",
-                        "index_col": "int_column",
-                        "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-                    },
-                    "output": "pd.read_sql.output",
-                },
-                {
-                    "pd.Grouper": {"key": "date_column", "freq": "W-MON"},
-                    "output": "pd.Grouper.output",
-                },
-                {
-                    "name": "group-data",
-                    "description": "Group data by int and date columns every week",
-                    "function": {
-                        "object": "${steps['pd.read_sql'].output}",
-                        "name": "groupby",
-                    },
-                    "args": {
-                        "by": "${steps['pd.Grouper'].output}",
-                        "axis": "columns",
-                        "dropna": False,
-                    },
-                },
-            ]
-        }
+            steps:
+              python_function_A:
+                inputA: 1
+                inputB: 2
+                inputC: 3
 
-    def test_replace_steps_output(self):
-        result = etl.replace_steps_output(
-            steps_output_matched=["pd.read_sql", "pd.Grouper"],
-            step=self.yamlData["steps"][2],
-            yamlData=self.yamlData,
-        )
-        expected = {
-            "name": "group-data",
-            "description": "Group data by int and date columns every week",
-            "function": {"object": "pd.read_sql.output", "name": "groupby"},
-            "args": {"by": "pd.Grouper.output", "axis": "columns", "dropna": False},
-        }
-        assert result == expected
+              python_function_B:
+                inputA: 3
+                inputB: 2
+                inputC: 1
 
-    def test_no_step_output(self):
-        with pytest.raises(ValueError) as error:
-            etl.replace_steps_output(
-                steps_output_matched=["pd.read_sql", "pd.Grouper", "pd.groupby"],
-                step=self.yamlData["steps"][2],
-                yamlData=self.yamlData,
-            )
-        assert error.value.args[0] == f"NO step output found for step name: pd.groupby"
+              python_function_C:
+                inputA: 2
+                inputB: 3
+                inputC: 1
 
+              finalOutputOne:
+                function: python_function_A
+                args:
+                    inputA: ${steps['python_function_A']}
+                    inputB: ${steps['python_function_B']}
+                    inputC: ${steps['python_function_C']}
 
-class TestReturnFunctionObject:
-    def setup_class(self):
-        self.yamlData = {
-            "steps": [
-                {
-                    "pd.read_sql": {
-                        "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                        "con": "${conn.my-source}",
-                        "index_col": "int_column",
-                        "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-                    },
-                    "output": "pd.read_sql.output",
-                },
-                {
-                    "pd.Grouper": {"key": "date_column", "freq": "W-MON"},
-                    "output": "pd.Grouper.output",
-                },
-                {
-                    "steps['pd.read_sql'].output.groupby": {
-                        "by": "${steps['pd.Grouper'].output}",
-                        "axis": "columns",
-                        "dropna": False,
-                    }
-                },
-                {"steps['pd.read_sql.groupby'].output.max": None},
-            ]
-        }
-
-    def test_return_function_object(self):
-        result = etl.return_function_object(["pd.read_sql"], yamlData=self.yamlData)
-        expected = "pd.read_sql.output"
-        assert result == expected
-
-    def test_no_step_output(self):
-        with pytest.raises(ValueError) as error:
-            etl.return_function_object(
-                ["pd.read_sql.groupby"],
-                yamlData=self.yamlData,
-            )
-        assert (
-            error.value.args[0]
-            == f"NO step output found for step name: pd.read_sql.groupby"
+              finalOutputTwo:
+                function: python_function_C
+                args:
+                    inputA: ${steps['python_function_C']}
+                    inputB: ${steps['python_function_B']}
+                    inputC: ${steps['python_function_A']}
+            """
         )
 
-
-class TestResolveConnectionsVariables:
-    def setup_class(self):
-        self.yamlData = {
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://MY_SERVER_NAME.MYDOMAIN.COM/MY_DATABASE",
-                    "engine": "Engine",
-                }
-            ],
-            "steps": [
-                {
-                    "pd.read_sql": {
-                        "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                        "con": "${conn.my-source}",
-                        "index_col": "int_column",
-                        "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-                    },
-                },
-            ],
-        }
-
-    def test_resolve_connections_variables(self):
-        result = etl.resolve_connections_variables(
-            conn_matched=["my-source"],
-            step=self.yamlData["steps"][0],
-            yamlData=self.yamlData,
-        )
-        expected = {
-            "pd.read_sql": {
-                "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                "con": "Engine",
-                "index_col": "int_column",
-                "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-            },
-        }
-        assert result == expected
-
-    def test_no_connection_engine(self):
-        with pytest.raises(ValueError) as error:
-            etl.resolve_connections_variables(
-                conn_matched=["new-source"],
-                step=self.yamlData["steps"][0],
-                yamlData=self.yamlData,
-            )
-        assert error.value.args[0] == f"NO connection engine found for name: new-source"
-
-
-class TestExecuteSteps:
-    def setup_class(self):
-        self.yamlData = {
-            "variables": {
-                "server": "MY_SERVER_NAME.MYDOMAIN.COM",
-                "database": "MY_DATABASE",
-            },
-            "preFlight": {"script": "import pandas as pd\n"},
-            "connections": [
-                {
-                    "name": "my-source",
-                    "connStr": "postgresql+psycopg2://${var.server}/${var.database}",
-                }
-            ],
-            "steps": [
-                {
-                    "pd.read_sql": {
-                        "sql": "SELECT\n  int_column,\n  date_column\nFROM\n  test_data\n",
-                        "con": "${conn.my-source}",
-                        "index_col": "int_column",
-                        "parse_dates": {"date_column": {"format": "%d/%m/%y"}},
-                    }
-                },
-                {"pd.Grouper": {"key": "date_column", "freq": "W-MON"}},
-                {
-                    "steps['pd.read_sql'].output.groupby": {
-                        "by": "${steps['pd.Grouper'].output}",
-                        "axis": "columns",
-                        "dropna": False,
-                    }
-                },
-                {"steps['pd.read_sql.groupby'].output.max": None},
-                {
-                    "steps['pd.read_sql.groupby.max'].output.to_csv": [
-                        "./my-aggregated-data.csv"
-                    ]
-                },
-            ],
-        }
+    def test_run_pipeline(self):
+        pass
+        # self.pipelineObj.run()
+        # TODO: @msuthar Implement test case
+        # assert self.pipelineObj.steps['finalOutputOne'].output == ((1+2+3)+(3-2-1)+(2*3*1))
+        # assert self.pipelineObj.steps['finalOutputTwo'].output == ((1+2+3)*(3-2-1)*(2*3*1))
