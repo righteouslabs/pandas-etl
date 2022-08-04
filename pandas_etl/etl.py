@@ -79,7 +79,7 @@ class Pipeline(object):
     def __init__(
         self,
         yamlData: str | dict,
-        overrideImports: list = [],
+        includeImports: list = [],
         overrideVariables: dict[str, str] = {},
     ):
         """
@@ -87,7 +87,7 @@ class Pipeline(object):
 
         Args:
             yamlData (str | dict): Either file name of YAML or the YAML directory
-            overrideImports (list, optional): imports to add from YAML. Defaults to [].
+            includeImports (list, optional): imports to add from YAML. Defaults to [].
             overrideVariables (dict[str, str], optional): variables to override from YAML. Defaults to {}.
         """
 
@@ -96,10 +96,10 @@ class Pipeline(object):
             yamlData = Pipeline.from_yaml_to_dict(yamlStr=yamlData)
             traceInfo(f"Main YAML definition loaded from: {yamlData}")
 
-        if overrideImports:
+        if includeImports:
             # Properties we parse from command line or expect code to have
             argumentProperties = {
-                "imports": overrideImports,
+                "imports": includeImports,
             }
 
             # Merge argument properties with YAML file properties

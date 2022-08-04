@@ -67,7 +67,7 @@ class TestAddArgumentImports:
             - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
             - ./tests/etl_definition_folder/connections/postgresql_sql_connections.yaml
             """,
-            overrideImports=[
+            includeImports=[
                 "./tests/etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml"
             ],
         )
@@ -225,7 +225,7 @@ class TestCreateEngineConnection:
             connections:
               my_database: postgresql+psycopg2://${var.username}:${var.password}@${var.server}:${var.postgresql_port}/${var.database}
             """,
-            overrideImports=[
+            includeImports=[
                 "./tests/etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml"
             ],
             overrideVariables={"postgresql_port": 9999},
