@@ -1,11 +1,12 @@
 import os
-from shutil import ExecError
+import inspect
 import yaml
 from calltraces.linetrace import traceInfo, traceError
 from calltraces.functiontrace import functiontrace
 from calltraces.classtrace import classtrace
 from tqdm.auto import tqdm
 import re
+import networkx as nx
 from sqlalchemy import create_engine
 import concurrent.futures
 import asyncio
@@ -131,7 +132,7 @@ class Pipeline(object):
         # Set variable property for this Class to help resolve variable values
         self.variables = Pipeline.Variables(vars=properties.get("variables", {}))
 
-        # Cerate a global called `var` such that:
+        # Create a global called `var` such that:
         #   Given `{varName:varValue}` dictionary
         #   And saved as Pipeline.Variables class
         #   Then `var.varName` evauluates to `varValue`
@@ -144,7 +145,7 @@ class Pipeline(object):
         # Set connections property for this Class to help resolve variable values
         self.connections = Pipeline.Connections(conns=properties.get("connections", {}))
 
-        # Cerate a global called `conn` such that:
+        # Create a global called `conn` such that:
         #   Given `{connName:connObj}` dictionary
         #   And saved as Pipeline.Connections class
         #   Then `conn.connName` evauluates to `connObj`
@@ -152,19 +153,15 @@ class Pipeline(object):
         # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
         # Set steps property for this Class to help resolve values
-        self.steps = Pipeline.Steps(vars=properties.get("steps", {}))
+        self.steps = Pipeline.Steps(steps=properties.get("steps", []))
 
-        # Cerate a global called `var` such that:
-        #   Given `{varName:varValue}` dictionary
-        #   And saved as Pipeline.Variables class
-        #   Then `var.varName` evauluates to `varValue`
+        # Create a global called `steps` such that:
+        #   Given `[{stepName:stepObj}]` list
+        #   And saved as Pipeline.Steps class
+        #   Then `steps['stepName]` evauluates to `stepObj`
         globals()["steps"] = self.steps
 
         traceInfo(f"Successfully loaded pipeline!")
-
-    def run(self) -> None:
-        # TODO: @rrmistry/@msuthar to discuss
-        raise NotImplementedError("Run is not implemented yet")
 
     # endregion Class Methods
 
@@ -300,28 +297,6 @@ class Pipeline(object):
 
     # -------------------------------------------------------------------------
 
-    # region Python data slicers for accessing properties dynamically
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__getitem__
-    def __getitem__(self, name):
-        return getattr(self, name)
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__setitem__
-    def __setitem__(self, name, value):
-        return setattr(self, name, value)
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__delitem__
-    def __delitem__(self, name):
-        return delattr(self, name)
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__contains__
-    def __contains__(self, name):
-        return hasattr(self, name)
-
-    # endregion Python data slicers for accessing properties dynamically
-
-    # -------------------------------------------------------------------------
-
     # region Nested Classes
 
     @classtrace
@@ -365,31 +340,135 @@ class Pipeline(object):
 
     @classtrace
     class Steps(object):
-        def __init__(self, steps: dict = {}):
-            procssedStepsDictionary = {
-                stepName: Pipeline.Steps.__processStep(step=stepDefinition)
-                for stepName, stepDefinition in steps.items()
-            }
-            # Merge existing object's properties with incoming properties
-            self.__dict__.update(procssedStepsDictionary)
+        def __init__(self, steps: list = []):
+            self._dg = nx.DiGraph()
 
-        def __processStep(step: dict = {}):
-            if type(step) != dict or len(step.keys()) <= 0:
-                raise ValueError(
-                    "Expected step to be like a dictionary of keys:value pairs"
+            for stepDefinition in steps:
+                stepObj = Pipeline.Steps.Step(
+                    stepDefinition=stepDefinition,
                 )
 
-            if len(step.keys()) == 1:
-                stepName = step.keys()[0]
-                outputStep = {
-                    "function": stepName,
-                    "args": step[0],  # the sub-properties at this dictionary key
-                }
-            else:
-                outputStep = step
+                expression_regex = re.compile(r"^steps\[(.*?)\]\.output\.(.*?)$")
+                expression_matched = re.findall(
+                    pattern=expression_regex, string=stepObj.name
+                )
+                if len(expression_matched) == 1 and len(expression_matched[0]) >= 2:
 
-            return outputStep
+                    newStepName = ""
+                    dependentStepName = ""
+
+                    for stepNamePartIndex in range(len(expression_matched[0])):
+                        newStepNamePart = expression_matched[0][stepNamePartIndex]
+                        if stepNamePartIndex == 0:
+                            newStepNamePart = newStepNamePart.strip()
+                            newStepNamePart = newStepNamePart.strip('"')
+                            newStepNamePart = newStepNamePart.strip("'")
+                            if newStepNamePart not in self._dg:
+                                raise ValueError(
+                                    f"Step name '{newStepNamePart}' not found. "
+                                    f"Expected it to be defined before processing '{stepObj.name}'. "
+                                    f"Change the order of steps so that '{newStepNamePart}' is defined before processing '{stepObj.name}."
+                                )
+                            else:
+                                dependentStepName = newStepNamePart
+                        if len(newStepName) > 0:
+                            newStepName += "."
+                        newStepName += newStepNamePart
+
+                    stepObj.name = newStepName
+                    self._dg.add_edge(stepObj.name, dependentStepName)
+
+                if stepObj.name not in self._dg:
+                    self._dg.add_node(node_for_adding=stepObj.name, **stepObj.__dict__)
+
+                # Merge existing object's properties with incoming properties
+                self.__dict__.update({stepObj.name: stepObj})
+
+        def get_names(self) -> list[str]:
+            return self.__dict__.keys()
+
+        @classtrace
+        class Step(object):
+            def __init__(
+                self,
+                stepDefinition: dict = {},
+            ):
+                if type(stepDefinition) != dict:
+                    raise ValueError(
+                        "Expected step to be like a dictionary of keys:value pairs"
+                    )
+
+                if len(stepDefinition.keys()) == 1:
+                    stepName = list(stepDefinition.keys())[0]
+                    stepDefinition = {
+                        "name": stepName,
+                        "function": stepName,
+                        # the sub-properties at this dictionary key
+                        "args": stepDefinition,
+                    }
+
+                # Merge existing object's properties with incoming properties
+                self.__dict__.update(stepDefinition)
+
+            async def __run_function(
+                functionFuture: asyncio.Future, functionHandle: any, input: dict
+            ):
+                # Evaluate other futures when executing
+                inputEvaluated = {
+                    k: v
+                    if not (
+                        asyncio.isfuture(v)
+                        or asyncio.iscoroutinefunction(v)
+                        or inspect.iscoroutine(v)
+                    )
+                    else await v
+                    for k, v in input.items()
+                }
+
+                value = functionHandle(**inputEvaluated)
+
+                functionFuture.set_result(value)
+
+        # -------------------------------------------------------------------------
+
+        # region Python data slicers for accessing properties dynamically
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__getitem__
+        def __getitem__(self, name):
+            return getattr(self, name)
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__setitem__
+        def __setitem__(self, name, value):
+            return setattr(self, name, value)
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__delitem__
+        def __delitem__(self, name):
+            return delattr(self, name)
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__contains__
+        def __contains__(self, name):
+            return hasattr(self, name)
+
+        # endregion Python data slicers for accessing properties dynamically
+
+        # -------------------------------------------------------------------------
 
     # endregion Nested Classes
+
+    # -------------------------------------------------------------------------
+
+    # region Execution Methods
+
+    def run(self) -> None:
+        x = [
+            node
+            for node in self.steps._dg.nodes
+            if self.steps._dg.out_degree(node) == 0
+        ]
+        print(x)
+        # TODO: @rrmistry/@msuthar to discuss
+        raise NotImplementedError("Run is not implemented yet")
+
+    # endregion Execution Methods
 
     # -------------------------------------------------------------------------
