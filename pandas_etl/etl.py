@@ -462,19 +462,27 @@ class Pipeline(object):
 
             # -------------------------------------------------------------------------
 
-        def run(self, nodeNames: str = None):
+        def run(self):
             """Run all the steps in the pipeline
 
             Args:
                 nodeName (str, optional): The starting node. Defaults to None.
             """
-            if nodeNames is None:
+            while any(self._dg.nodes):
                 nodeNames = [
-                    node for node in self._dg.nodes if self._dg.in_degree(node) == 0
+                    # Get all nodes that have no dependencies
+                    node
+                    for node in self._dg.nodes
+                    if self._dg.in_degree(node) == 0
                 ]
-            for node in nodeNames:
-                self[node].run()
-                self.run(nodeNames=self._dg.successors(node))
+                for node in nodeNames:
+                    # Run this step
+                    self[node].run()
+
+                    # Remove the node from the Directed Graph:
+                    #   This means that we run nodes with no dependencies first and remove from them graph after execution
+                    #   and continue to discover more nodes with no dependencies until there are no more nodes left
+                    self._dg.remove_node(node)
 
         # region Python data slicers for accessing properties dynamically
 
