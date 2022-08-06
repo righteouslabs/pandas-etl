@@ -38,29 +38,49 @@ def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
     return output
 
 
-def _processStringForExpressions(input: str | dict) -> str | dict:
+def _processStringForExpressions(input: str | dict) -> any:
     """
     Private function to process a string and replace placeholder `${expression}` with `expression value`
 
+    If a string ony contains the text `"${expression}"`, then this function will return the evaluated expression instead of a string representation of it.
+
     Args:
-        input (str|dict): Input string or dictionary
+        input (str|dict|object|any): Input string or dictionary or object to be evaluated
 
     Returns:
         str: Output string or dictionary (always same time as input)
     """
     if type(input) == str:
         # Reference: https://docs.python.org/3/howto/regex.html#greedy-versus-non-greedy
-        expression_regex = re.compile(r"\$\{(.*?)\}")
+        expression_regex = re.compile(r"(.*)\$\{(.*?)\}(.*)")
         expression_matched = re.findall(pattern=expression_regex, string=input)
         output = input
-        for exp in expression_matched:
-            output = re.sub(
-                pattern=r"\$\{" + exp + r"\}",
-                repl=str(eval(exp)),
-                string=output,
+        for (
+            text_before_expression,
+            expression,
+            text_after_expression,
+        ) in expression_matched:
+
+            if (
+                len(expression_matched) == 1
+                and len(text_before_expression) == 0
+                and len(text_after_expression) == 0
+            ):
+                # The expression is the only part of the string.
+                # So it is not expected to interpreted as a string,
+                # but an object instead. So return object directly.
+                return eval(expression)
+
+            # Use simple string replace instead of regex replace because expressions themselves may break regex rules
+            # E.g. if expression is "steps['pd.read_csv']" then the square brackets cause problems for regex
+            output = output.replace(
+                "${" + expression + "}",
+                eval(expression),
             )
+
         return output
-    elif input is dict:
+
+    elif type(input) == dict:
         output = {k: _processStringForExpressions(v) for k, v in input.items()}
         return output
     else:
@@ -130,12 +150,12 @@ class Pipeline(object):
         self.__dict__.update(properties)
 
         # Set variable property for this Class to help resolve variable values
-        self.variables = Pipeline.Variables(vars=properties.get("variables", {}))
+        self.variables = Pipeline._Variables(vars=properties.get("variables", {}))
 
         # Create a global called `var` such that:
         #   Given `{varName:varValue}` dictionary
-        #   And saved as Pipeline.Variables class
-        #   Then `var.varName` evauluates to `varValue`
+        #   And saved as Pipeline._Variables class
+        #   Then `var.varName` evaluates to `varValue`
         globals()["var"] = self.variables
         # TODO: @rrmistry/@msuthar to discuss if `var` can be renamed to `variables` to synchronize YAML with globals()
 
@@ -143,22 +163,24 @@ class Pipeline(object):
         exec(self.__dict__.get("preFlight", {}).get("script", ""), globals())
 
         # Set connections property for this Class to help resolve variable values
-        self.connections = Pipeline.Connections(conns=properties.get("connections", {}))
+        self.connections = Pipeline._Connections(
+            conns=properties.get("connections", {})
+        )
 
         # Create a global called `conn` such that:
         #   Given `{connName:connObj}` dictionary
-        #   And saved as Pipeline.Connections class
-        #   Then `conn.connName` evauluates to `connObj`
+        #   And saved as Pipeline._Connections class
+        #   Then `conn.connName` evaluates to `connObj`
         globals()["conn"] = self.connections
         # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
         # Set steps property for this Class to help resolve values
-        self.steps = Pipeline.Steps(steps=properties.get("steps", []))
+        self.steps = Pipeline._Steps(steps=properties.get("steps", []))
 
         # Create a global called `steps` such that:
         #   Given `[{stepName:stepObj}]` list
-        #   And saved as Pipeline.Steps class
-        #   Then `steps['stepName]` evauluates to `stepObj`
+        #   And saved as Pipeline._Steps class
+        #   Then `steps['stepName]` evaluates to `stepObj`
         globals()["steps"] = self.steps
 
         traceInfo(f"Successfully loaded pipeline!")
@@ -300,7 +322,7 @@ class Pipeline(object):
     # region Nested Classes
 
     @classtrace
-    class Variables(object):
+    class _Variables(object):
         """
         A simple placeholder class for variables.
 
@@ -319,7 +341,7 @@ class Pipeline(object):
     # ---------------------------------
 
     @classtrace
-    class Connections(object):
+    class _Connections(object):
         """
         A simple placeholder class for connections.
 
@@ -338,57 +360,69 @@ class Pipeline(object):
             # Merge existing object's properties with incoming properties
             self.__dict__.update(connectionDictionary)
 
-    @classtrace
-    class Steps(object):
+    # @classtrace
+    class _Steps(object):
         def __init__(self, steps: list = []):
             self._dg = nx.DiGraph()
 
             for stepDefinition in steps:
-                stepObj = Pipeline.Steps.Step(
+                stepObj = Pipeline._Steps._Step(
                     stepDefinition=stepDefinition,
                 )
 
-                expression_regex = re.compile(r"^steps\[(.*?)\]\.output\.(.*?)$")
-                expression_matched = re.findall(
-                    pattern=expression_regex, string=stepObj.name
+                # Do not replace function, only step name
+                stepObj.name = self.__setup_dependencies_from_string_input(
+                    input=stepObj.name
                 )
-                if len(expression_matched) == 1 and len(expression_matched[0]) >= 2:
-
-                    newStepName = ""
-                    dependentStepName = ""
-
-                    for stepNamePartIndex in range(len(expression_matched[0])):
-                        newStepNamePart = expression_matched[0][stepNamePartIndex]
-                        if stepNamePartIndex == 0:
-                            newStepNamePart = newStepNamePart.strip()
-                            newStepNamePart = newStepNamePart.strip('"')
-                            newStepNamePart = newStepNamePart.strip("'")
-                            if newStepNamePart not in self._dg:
-                                raise ValueError(
-                                    f"Step name '{newStepNamePart}' not found. "
-                                    f"Expected it to be defined before processing '{stepObj.name}'. "
-                                    f"Change the order of steps so that '{newStepNamePart}' is defined before processing '{stepObj.name}."
-                                )
-                            else:
-                                dependentStepName = newStepNamePart
-                        if len(newStepName) > 0:
-                            newStepName += "."
-                        newStepName += newStepNamePart
-
-                    stepObj.name = newStepName
-                    self._dg.add_edge(stepObj.name, dependentStepName)
-
                 if stepObj.name not in self._dg:
-                    self._dg.add_node(node_for_adding=stepObj.name, **stepObj.__dict__)
+                    self._dg.add_node(
+                        node_for_adding=stepObj.name, **{"stepObj": stepObj}
+                    )
+                if stepObj.args is not None:
+                    # Do not replace arg. Just track dependency
+                    for arg, value in stepObj.args.items():
+                        self.__setup_dependencies_from_string_input(input=value)
 
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update({stepObj.name: stepObj})
 
-        def get_names(self) -> list[str]:
-            return self.__dict__.keys()
+        def __setup_dependencies_from_string_input(self, input: str) -> str:
 
-        @classtrace
-        class Step(object):
+            expression_regex = re.compile(r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}")
+            expression_matched = re.findall(pattern=expression_regex, string=input)
+            if len(expression_matched) > 0:
+
+                for matched in expression_matched:
+
+                    dependentStepName = matched[0]
+                    dependentStepName = dependentStepName.strip()
+                    dependentStepName = dependentStepName.strip('"')
+                    dependentStepName = dependentStepName.strip("'")
+
+                    newStepNamePart = matched[1].join([dependentStepName, matched[2]])
+
+                    if dependentStepName not in self._dg:
+                        raise ValueError(
+                            f"_Step name '{newStepNamePart}' not found. "
+                            f"Expected it to be defined before processing '{input}'. "
+                            f"Change the order of steps so that '{newStepNamePart}' is defined before processing '{input}."
+                        )
+
+                    input = input.replace(
+                        "${steps["
+                        + matched[0]
+                        + "].output"
+                        + matched[1]
+                        + matched[2]
+                        + "}",
+                        newStepNamePart,
+                    )
+
+                self._dg.add_edge(dependentStepName, input)
+            return input
+
+        # @classtrace
+        class _Step(object):
             def __init__(
                 self,
                 stepDefinition: dict = {},
@@ -404,32 +438,43 @@ class Pipeline(object):
                         "name": stepName,
                         "function": stepName,
                         # the sub-properties at this dictionary key
-                        "args": stepDefinition,
+                        "args": stepDefinition.get(stepName, {}),
                     }
 
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update(stepDefinition)
 
-            async def __run_function(
-                functionFuture: asyncio.Future, functionHandle: any, input: dict
-            ):
-                # Evaluate other futures when executing
-                inputEvaluated = {
-                    k: v
-                    if not (
-                        asyncio.isfuture(v)
-                        or asyncio.iscoroutinefunction(v)
-                        or inspect.iscoroutine(v)
-                    )
-                    else await v
-                    for k, v in input.items()
-                }
+            def run(self) -> None:
+                functionHandle = _processStringForExpressions(input=self.function)
+                if type(functionHandle) == str:
+                    functionHandle = eval(functionHandle)
 
-                value = functionHandle(**inputEvaluated)
+                traceInfo(f"Starting pipeline steps['{self.name}']")
 
-                functionFuture.set_result(value)
+                # Always set arguments to empty dictionary
+                self.args = {} if self.args is None else self.args
+                # Interpret all the arguments for any evaluated expressions
+                self.args = _processStringForExpressions(input=self.args)
 
-        # -------------------------------------------------------------------------
+                self.output = functionHandle(**self.args)
+
+                traceInfo(f"Finished pipeline steps['{self.name}']")
+
+            # -------------------------------------------------------------------------
+
+        def run(self, nodeNames: str = None):
+            """Run all the steps in the pipeline
+
+            Args:
+                nodeName (str, optional): The starting node. Defaults to None.
+            """
+            if nodeNames is None:
+                nodeNames = [
+                    node for node in self._dg.nodes if self._dg.in_degree(node) == 0
+                ]
+            for node in nodeNames:
+                self[node].run()
+                self.run(nodeNames=self._dg.successors(node))
 
         # region Python data slicers for accessing properties dynamically
 
@@ -460,14 +505,9 @@ class Pipeline(object):
     # region Execution Methods
 
     def run(self) -> None:
-        x = [
-            node
-            for node in self.steps._dg.nodes
-            if self.steps._dg.out_degree(node) == 0
-        ]
-        print(x)
+        self.steps.run()
         # TODO: @rrmistry/@msuthar to discuss
-        raise NotImplementedError("Run is not implemented yet")
+        # raise NotImplementedError("Run is not implemented yet")
 
     # endregion Execution Methods
 
