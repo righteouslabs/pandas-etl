@@ -1,15 +1,17 @@
-import os
-import inspect
-import yaml
-from calltraces.linetrace import traceInfo, traceError
-from calltraces.functiontrace import functiontrace
-from calltraces.classtrace import classtrace
-from tqdm.auto import tqdm
-import re
-import networkx as nx
-from sqlalchemy import create_engine
-import concurrent.futures
 import asyncio
+import concurrent.futures
+import inspect
+import logging
+import os
+import re
+
+import networkx as nx
+import yaml
+from calltraces.classtrace import classtrace
+from calltraces.functiontrace import functiontrace
+from calltraces.linetrace import traceError, traceInfo
+from sqlalchemy import create_engine
+from tqdm.auto import tqdm
 
 
 def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
@@ -372,7 +374,8 @@ class Pipeline(object):
 
                 # Do not replace function, only step name
                 stepObj.name = self.__setup_dependencies_from_string_input(
-                    input=stepObj.name
+                    input=stepObj.name,
+                    stepName=stepObj.name,
                 )
                 if stepObj.name not in self._dg:
                     self._dg.add_node(
@@ -381,12 +384,33 @@ class Pipeline(object):
                 if stepObj.args is not None:
                     # Do not replace arg. Just track dependency
                     for arg, value in stepObj.args.items():
-                        self.__setup_dependencies_from_string_input(input=value)
+                        self.__setup_dependencies_from_string_input(
+                            input=value, stepName=stepObj.name
+                        )
 
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update({stepObj.name: stepObj})
 
-        def __setup_dependencies_from_string_input(self, input: str) -> str:
+            try:
+                graph_dependency_cycles = list(
+                    nx.find_cycle(self._dg, orientation="original")
+                )
+                if any(graph_dependency_cycles):
+                    raise RuntimeError(
+                        f"Found cycles in dependencies of steps. Check this dependency cycle: {graph_dependency_cycles}"
+                    )
+            except nx.NetworkXNoCycle as ex:
+                traceInfo(
+                    f"No cycles detected in dependency graph! This is good to have.",
+                    logLevel=logging.DEBUG,
+                )
+
+        def __setup_dependencies_from_string_input(
+            self, input: str, stepName: str
+        ) -> str:
+
+            if type(input) != str:
+                return input
 
             expression_regex = re.compile(r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}")
             expression_matched = re.findall(pattern=expression_regex, string=input)
@@ -418,7 +442,7 @@ class Pipeline(object):
                         newStepNamePart,
                     )
 
-                self._dg.add_edge(dependentStepName, input)
+                self._dg.add_edge(dependentStepName, stepName)
             return input
 
         # @classtrace

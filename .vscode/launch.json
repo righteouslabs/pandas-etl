@@ -37,7 +37,8 @@
             "justMyCode": true,
             "cwd": "${workspaceFolder}",
             "args": [
-                "./tests/test_etl.py::TestAddArgumentImports::test_add_argument_imports"
+                // If you want to run a specific test only
+                // "./tests/test_etl.py::TestAddArgumentImports::test_add_argument_imports"
             ],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",

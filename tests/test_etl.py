@@ -93,56 +93,96 @@ class TestCreateEngineConnection:
 
 
 class TestPipelineRun:
-    def setup_class(self):
-        self.pipelineObj = etl.Pipeline(
+    def test_run_pipeline(self):
+        pipelineObj = etl.Pipeline(
             yamlData="""
-            # Define user functions that should be incldued in tests
+            # Define user functions that should be included in tests
             preFlight:
               script: |
                 def python_function_A(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:
                     return inputA + inputB + inputC
 
                 def python_function_B(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:
-                    return inputA - inputB - inputC
+                    return inputA + inputB - inputC
 
                 def python_function_C(inputA: int = 1, inputB: int = 1, inputC: int = 1) -> int:
                     return inputA * inputB * inputC
 
             steps:
-              python_function_A:
+            - python_function_A:
                 inputA: 1
                 inputB: 2
                 inputC: 3
 
-              python_function_B:
+            - python_function_B:
                 inputA: 3
                 inputB: 2
                 inputC: 1
 
-              python_function_C:
+            - python_function_C:
                 inputA: 2
                 inputB: 3
                 inputC: 1
 
-              finalOutputOne:
-                function: python_function_A
-                args:
-                    inputA: ${steps['python_function_A']}
-                    inputB: ${steps['python_function_B']}
-                    inputC: ${steps['python_function_C']}
+            - name: finalOutputOne
+              function: python_function_A
+              args:
+                inputA: ${steps['python_function_A'].output}
+                inputB: ${steps['python_function_B'].output}
+                inputC: ${steps['python_function_C'].output}
 
-              finalOutputTwo:
-                function: python_function_C
-                args:
-                    inputA: ${steps['python_function_C']}
-                    inputB: ${steps['python_function_B']}
-                    inputC: ${steps['python_function_A']}
+            - name: finalOutputTwo
+              function: python_function_C
+              args:
+                inputA: ${steps['python_function_C'].output}
+                inputB: ${steps['python_function_B'].output}
+                inputC: ${steps['python_function_A'].output}
+            """
+        )
+        pipelineObj.run()
+        assert pipelineObj.steps["finalOutputOne"].output == (
+            (1 + 2 + 3) + (3 + 2 - 1) + (2 * 3 * 1)
+        )
+        assert pipelineObj.steps["finalOutputTwo"].output == (
+            (1 + 2 + 3) * (3 + 2 - 1) * (2 * 3 * 1)
+        )
+
+    def test_run_pandas_pipeline(self):
+        # No variables defined
+        pipelineObj = etl.Pipeline(
+            yamlData="""
+            # Define user functions that should be included in tests
+            preFlight:
+              script: |
+                import os
+                import pandas as pd
+
+            steps:
+            - pd.read_csv:
+                filepath_or_buffer: ./tests/data/test.csv
+
+            - ${steps['pd.read_csv'].output.groupby}:
+                by: AB
+
+            - ${steps['pd.read_csv.groupby'].output.max}:
+
+            - ${steps['pd.read_csv.groupby.max'].output.to_csv}:
+                path_or_buf: ${os.path.dirname(steps['pd.read_csv'].args['filepath_or_buffer'])}/output_in_same_folder_as_input.csv
             """
         )
 
-    def test_run_pipeline(self):
-        pass
-        # self.pipelineObj.run()
-        # TODO: @msuthar Implement test case
-        # assert self.pipelineObj.steps['finalOutputOne'].output == ((1+2+3)+(3-2-1)+(2*3*1))
-        # assert self.pipelineObj.steps['finalOutputTwo'].output == ((1+2+3)*(3-2-1)*(2*3*1))
+        # Define the path of the expected output file
+        expected_output_file_path = "./tests/data/output_in_same_folder_as_input.csv"
+
+        # Remove the file before running pipeline
+        if os.path.exists(path=expected_output_file_path):
+            os.remove(path=expected_output_file_path)
+
+        # Run the pipeline
+        pipelineObj.run()
+
+        # Check that the output file has been created
+        assert os.path.exists(path=expected_output_file_path)
+
+        # Delete the output file for cleanup
+        os.remove(path=expected_output_file_path)
