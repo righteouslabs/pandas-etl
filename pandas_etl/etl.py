@@ -1,13 +1,10 @@
-import asyncio
 import concurrent.futures
-import inspect
 import logging
 import os
 import re
 
 import networkx as nx
 import yaml
-from calltraces import commonTraceSettings
 from calltraces.classtrace import classtrace
 from calltraces.functiontrace import functiontrace
 from calltraces.linetrace import traceError, traceInfo
@@ -29,15 +26,16 @@ def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
         dict[str, str]: Returns a dictionary of `{key:value}` pairs after parsing command line
     """
     output = {}
-    for var in variables:
-        varSplits = var.split("=")
-        if len(varSplits) != 2:
-            raise ValueError(
-                f"Invalid command line for variable '{var}' Expected format as varName=varValue"
-            )
-        varName = varSplits[0].strip()
-        varValue = varSplits[1].strip()
-        output[varName] = varValue
+    if variables:
+        for var in variables:
+            varSplits = var.split("=")
+            if len(varSplits) != 2:
+                raise ValueError(
+                    f"Invalid command line for variable '{var}' Expected format as varName=varValue"
+                )
+            varName = varSplits[0].strip()
+            varValue = varSplits[1].strip()
+            output[varName] = varValue
     return output
 
 
@@ -78,8 +76,11 @@ def _processStringForExpressions(input: str | dict) -> any:
             # E.g. if expression is "steps['pd.read_csv']" then the square brackets cause problems for regex
             output = output.replace(
                 "${" + expression + "}",
-                eval(expression),
+                str(eval(expression)),
             )
+
+            if re.findall(pattern=expression_regex, string=output):
+                output = _processStringForExpressions(input=output)
 
         return output
 
@@ -104,7 +105,7 @@ class Pipeline(object):
         self,
         yamlData: str | dict,
         includeImports: list = [],
-        overrideVariables: dict[str, str] = {},
+        overrideVariables: dict[str, str | int] = {},
     ):
         """
         Initialize Pipeline class
@@ -320,58 +321,6 @@ class Pipeline(object):
 
     # endregion Static functions
 
-    # ----------------------------------------------------------------
-
-    # region Futures
-
-    async def run_function(fut: asyncio.Future, functionHandle: any, input: dict):
-
-        # Evaluate other futures when executing
-        inputEvaluated = {
-            k: input[k]
-            if not (
-                asyncio.isfuture(input[k])
-                or asyncio.iscoroutinefunction(input[k])
-                or inspect.iscoroutine(input[k])
-            )
-            else await input[k]
-            for k in input.keys()
-        }
-
-        value = functionHandle(**inputEvaluated)
-
-        fut.set_result(value)
-
-    def get_function_future(
-        loop: asyncio.AbstractEventLoop, funcName: str, input: dict
-    ) -> asyncio.Future:
-        # Create a new Future object.
-        functionFuture = loop.create_future()
-
-        # Get the function handle as defined in Python
-        functionHandle = eval(funcName)
-
-        # Remove the symbol name if not already added
-        if functionHandle.__name__ in commonTraceSettings.ignoreSymbols:
-            commonTraceSettings.ignoreSymbols.remove(functionHandle.__name__)
-
-        # Trace the function execution when it starts and finishes
-        functionHandle = functiontrace(functionHandle)
-
-        # Run "run_function()" coroutine in a parallel Task.
-        # We are using the low-level "loop.create_task()" API here because
-        # we already have a reference to the event loop at hand.
-        # Otherwise we could have just used "asyncio.create_task()".
-        loop.create_task(
-            coro=Pipeline.run_function(
-                fut=functionFuture, functionHandle=functionHandle, input=input
-            )
-        )
-
-        return functionFuture
-
-    # endregion Futures
-
     # -------------------------------------------------------------------------
 
     # region Nested Classes
@@ -426,14 +375,13 @@ class Pipeline(object):
                 )
 
                 # Do not replace function, only step name
-                stepObj.name = self.__setup_dependencies_from_string_input(
-                    input=stepObj.name,
-                    stepName=stepObj.name,
-                )
-                if stepObj.name not in self._dg:
-                    self._dg.add_node(
-                        node_for_adding=stepObj.name, **{"stepObj": stepObj}
+                stepObj.name = (
+                    self.__setup_dependencies_from_string_input_for_step_name(
+                        input=stepObj.name,
+                        stepName=stepObj.name,
                     )
+                )
+                self._dg.add_node(node_for_adding=stepObj.name, **{"stepObj": stepObj})
                 if stepObj.args is not None:
                     # Do not replace arg. Just track dependency
                     for arg, value in stepObj.args.items():
@@ -458,6 +406,46 @@ class Pipeline(object):
                     logLevel=logging.DEBUG,
                 )
 
+        def __setup_dependencies_from_string_input_for_step_name(
+            self, input: str, stepName: str
+        ) -> str:
+
+            if type(input) != str:
+                return input
+
+            expression_regex = re.compile(r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}")
+            expression_matched = re.findall(pattern=expression_regex, string=input)
+            if len(expression_matched) > 0:
+
+                for matched in expression_matched:
+
+                    dependentStepName = matched[0]
+                    dependentStepName = dependentStepName.strip()
+                    dependentStepName = dependentStepName.strip('"')
+                    dependentStepName = dependentStepName.strip("'")
+
+                    newStepNamePart = matched[1].join([dependentStepName, matched[2]])
+
+                    if dependentStepName not in self._dg:
+                        raise ValueError(
+                            f"_Step name '{dependentStepName}' not found. "
+                            f"Expected it to be defined before processing '{input}'. "
+                            f"Change the order of steps so that '{dependentStepName}' is defined before processing '{input}."
+                        )
+
+                    input = input.replace(
+                        "${steps["
+                        + matched[0]
+                        + "].output"
+                        + matched[1]
+                        + matched[2]
+                        + "}",
+                        newStepNamePart,
+                    )
+
+                self._dg.add_edge(dependentStepName, input)
+            return input
+
         def __setup_dependencies_from_string_input(
             self, input: str, stepName: str
         ) -> str:
@@ -480,9 +468,9 @@ class Pipeline(object):
 
                     if dependentStepName not in self._dg:
                         raise ValueError(
-                            f"_Step name '{newStepNamePart}' not found. "
+                            f"_Step name '{dependentStepName}' not found. "
                             f"Expected it to be defined before processing '{input}'. "
-                            f"Change the order of steps so that '{newStepNamePart}' is defined before processing '{input}."
+                            f"Change the order of steps so that '{dependentStepName}' is defined before processing '{input}."
                         )
 
                     input = input.replace(
@@ -545,6 +533,12 @@ class Pipeline(object):
             Args:
                 nodeName (str, optional): The starting node. Defaults to None.
             """
+            tqdm_list = tqdm(
+                total=len(self._dg.nodes),
+                unit="node",
+                desc="YAML step",
+                colour="green",
+            )
             while any(self._dg.nodes):
                 nodeNames = [
                     # Get all nodes that have no dependencies
@@ -552,14 +546,22 @@ class Pipeline(object):
                     for node in self._dg.nodes
                     if self._dg.in_degree(node) == 0
                 ]
-                for node in nodeNames:
-                    # Run this step
-                    self[node].run()
+                tqdm_list.set_postfix_str(nodeNames)
 
-                    # Remove the node from the Directed Graph:
-                    #   This means that we run nodes with no dependencies first and remove from them graph after execution
-                    #   and continue to discover more nodes with no dependencies until there are no more nodes left
-                    self._dg.remove_node(node)
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    for node in nodeNames:
+                        # Run this step
+                        executor.submit(self[node].run())
+                        # self[node].run()
+
+                        # Remove the node from the Directed Graph:
+                        #   This means that we run nodes with no dependencies first and remove from them graph after execution
+                        #   and continue to discover more nodes with no dependencies until there are no more nodes left
+                        self._dg.remove_node(node)
+
+                    executor.shutdown(wait=True)
+
+                tqdm_list.update(len(nodeNames))
 
         # region Python data slicers for accessing properties dynamically
 
@@ -589,50 +591,9 @@ class Pipeline(object):
 
     # region Execution Methods
 
-    async def run(self) -> None:
+    def run(self) -> None:
         self.steps.run()
         # TODO: @rrmistry/@msuthar to discuss
-        # raise NotImplementedError("Run is not implemented yet")
-
-        # masterLoop = asyncio.get_running_loop()
-
-        # # Just for out local debugging we want to print all objects going into and out of functions
-        # # This is not recommended for production workloads as objects can be huge in memory and fill up console output making it hard to interpret
-        # # commonTraceSettings.printArguments = True
-        # commonTraceSettings.printOutputs = True
-
-        # traceInfo(f"Starting setting up Futures")
-        # # Below will happen as-is in existing pandas-etl code
-        # tqdm_function_list = tqdm(
-        #     iterable=steps,
-        #     unit=" function",
-        #     desc="YAML Steps",
-        #     colour="green",
-        # )
-        # for step in tqdm_function_list:
-        #     if "name" in step.keys():
-        #         function_name = step["name"]
-        #     else:
-        #         function_name = list(step.keys())[0]
-
-        #     tqdm_function_list.set_postfix_str(
-        #         "Function Name: "
-        #         + function_name
-        #         + "; Function Description: "
-        #         + step.get("description", "No description provided")
-        #     )
-
-        #     steps.i["output"] = Pipeline.get_function_future(
-        #         loop=masterLoop, funcName=steps.i["function"], input=steps.i["args"]
-        #     )
-
-        # traceInfo(f"Finished setting up Futures")
-
-        # traceInfo(f"Starting to evaluate future now")
-        # finalOutput = await Output
-        # traceInfo(f"Finished evaluating future now")
-
-        # print(f"Final output = {finalOutput}")
 
     # endregion Execution Methods
 

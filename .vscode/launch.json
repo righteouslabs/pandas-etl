@@ -39,6 +39,7 @@
             "args": [
                 // If you want to run a specific test only
                 // "./tests/test_etl.py::TestAddArgumentImports::test_add_argument_imports"
+                "./tests/test_etl.py::TestCreateEngineConnection::test_create_engine_connection"
             ],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",

@@ -85,11 +85,13 @@ class TestCreateEngineConnection:
             # No variables defined
             self.pipelineTestObj2 = etl.Pipeline(
                 yamlData="""
+                imports:
+                - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
                 connections:
                   my_source: postgresql+psycopg2://${var.host}/${var.database}
                 """
             )
-        assert error.value.args[0] == f"'Variables' object has no attribute 'host'"
+        assert error.value.args[0] == f"'_Variables' object has no attribute 'host'"
 
 
 class TestPipelineRun:

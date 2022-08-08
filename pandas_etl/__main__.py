@@ -1,5 +1,4 @@
 import os, sys
-import asyncio
 import argparse
 from .etl import Pipeline
 from .etl import parse_command_line_variables
@@ -67,4 +66,3 @@ if __name__ == "__main__":
         includeImports=args.imports,
     )
     pipelineObj.run()
-    # asyncio.run(pipelineObj.run())
