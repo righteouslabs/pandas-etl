@@ -66,5 +66,5 @@ if __name__ == "__main__":
         overrideVariables=parse_command_line_variables(variables=args.var),
         includeImports=args.imports,
     )
-
-    asyncio.run(pipelineObj.run())
+    pipelineObj.run()
+    # asyncio.run(pipelineObj.run())

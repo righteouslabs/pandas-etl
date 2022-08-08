@@ -1,16 +1,18 @@
-import inspect
-import os
-from shutil import ExecError
-import yaml
-from calltraces.linetrace import traceInfo, traceError
-from calltraces.functiontrace import functiontrace
-from calltraces.classtrace import classtrace
-from calltraces import commonTraceSettings
-from tqdm.auto import tqdm
-import re
-from sqlalchemy import create_engine
-import concurrent.futures
 import asyncio
+import concurrent.futures
+import inspect
+import logging
+import os
+import re
+
+import networkx as nx
+import yaml
+from calltraces import commonTraceSettings
+from calltraces.classtrace import classtrace
+from calltraces.functiontrace import functiontrace
+from calltraces.linetrace import traceError, traceInfo
+from sqlalchemy import create_engine
+from tqdm.auto import tqdm
 
 
 def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
@@ -39,29 +41,49 @@ def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
     return output
 
 
-def _processStringForExpressions(input: str | dict) -> str | dict:
+def _processStringForExpressions(input: str | dict) -> any:
     """
     Private function to process a string and replace placeholder `${expression}` with `expression value`
 
+    If a string ony contains the text `"${expression}"`, then this function will return the evaluated expression instead of a string representation of it.
+
     Args:
-        input (str|dict): Input string or dictionary
+        input (str|dict|object|any): Input string or dictionary or object to be evaluated
 
     Returns:
         str: Output string or dictionary (always same time as input)
     """
     if type(input) == str:
         # Reference: https://docs.python.org/3/howto/regex.html#greedy-versus-non-greedy
-        expression_regex = re.compile(r"\$\{(.*?)\}")
+        expression_regex = re.compile(r"(.*)\$\{(.*?)\}(.*)")
         expression_matched = re.findall(pattern=expression_regex, string=input)
         output = input
-        for exp in expression_matched:
-            output = re.sub(
-                pattern=r"\$\{" + exp + r"\}",
-                repl=str(eval(exp)),
-                string=output,
+        for (
+            text_before_expression,
+            expression,
+            text_after_expression,
+        ) in expression_matched:
+
+            if (
+                len(expression_matched) == 1
+                and len(text_before_expression) == 0
+                and len(text_after_expression) == 0
+            ):
+                # The expression is the only part of the string.
+                # So it is not expected to interpreted as a string,
+                # but an object instead. So return object directly.
+                return eval(expression)
+
+            # Use simple string replace instead of regex replace because expressions themselves may break regex rules
+            # E.g. if expression is "steps['pd.read_csv']" then the square brackets cause problems for regex
+            output = output.replace(
+                "${" + expression + "}",
+                eval(expression),
             )
+
         return output
-    elif input is dict:
+
+    elif type(input) == dict:
         output = {k: _processStringForExpressions(v) for k, v in input.items()}
         return output
     else:
@@ -131,11 +153,11 @@ class Pipeline(object):
         self.__dict__.update(properties)
 
         # Set variable property for this Class to help resolve variable values
-        self.variables = Pipeline.Variables(vars=properties.get("variables", {}))
+        self.variables = Pipeline._Variables(vars=properties.get("variables", {}))
 
-        # Cerate a global called `var` such that:
+        # Create a global called `var` such that:
         #   Given `{varName:varValue}` dictionary
-        #   And saved as Pipeline.Variables class
+        #   And saved as Pipeline._Variables class
         #   Then `var.varName` evaluates to `varValue`
         globals()["var"] = self.variables
         # TODO: @rrmistry/@msuthar to discuss if `var` can be renamed to `variables` to synchronize YAML with globals()
@@ -144,69 +166,27 @@ class Pipeline(object):
         exec(self.__dict__.get("preFlight", {}).get("script", ""), globals())
 
         # Set connections property for this Class to help resolve variable values
-        self.connections = Pipeline.Connections(conns=properties.get("connections", {}))
+        self.connections = Pipeline._Connections(
+            conns=properties.get("connections", {})
+        )
 
-        # Cerate a global called `conn` such that:
+        # Create a global called `conn` such that:
         #   Given `{connName:connObj}` dictionary
-        #   And saved as Pipeline.Connections class
+        #   And saved as Pipeline._Connections class
         #   Then `conn.connName` evaluates to `connObj`
         globals()["conn"] = self.connections
         # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
         # Set steps property for this Class to help resolve values
-        self.steps = Pipeline.Steps(steps=properties.get("steps", {}))
+        self.steps = Pipeline._Steps(steps=properties.get("steps", []))
 
-        # Cerate a global called `var` such that:
-        #   Given `{varName:varValue}` dictionary
-        #   And saved as Pipeline.Variables class
-        #   Then `var.varName` evauluates to `varValue`
+        # Create a global called `steps` such that:
+        #   Given `[{stepName:stepObj}]` list
+        #   And saved as Pipeline._Steps class
+        #   Then `steps['stepName]` evaluates to `stepObj`
         globals()["steps"] = self.steps
 
         traceInfo(f"Successfully loaded pipeline!")
-
-    async def run(self) -> None:
-        # TODO: @rrmistry/@msuthar to discuss
-        # raise NotImplementedError("Run is not implemented yet")
-
-        masterLoop = asyncio.get_running_loop()
-
-        # Just for out local debugging we want to print all objects going into and out of functions
-        # This is not recommended for production workloads as objects can be huge in memory and fill up console output making it hard to interpret
-        # commonTraceSettings.printArguments = True
-        commonTraceSettings.printOutputs = True
-
-        traceInfo(f"Starting setting up Futures")
-        # Below will happen as-is in existing pandas-etl code
-        tqdm_function_list = tqdm(
-            iterable=steps,
-            unit=" function",
-            desc="YAML Steps",
-            colour="green",
-        )
-        for step in tqdm_function_list:
-            if "name" in step.keys():
-                function_name = step["name"]
-            else:
-                function_name = list(step.keys())[0]
-
-            tqdm_function_list.set_postfix_str(
-                "Function Name: "
-                + function_name
-                + "; Function Description: "
-                + step.get("description", "No description provided")
-            )
-
-            steps.i["output"] = Pipeline.get_function_future(
-                loop=masterLoop, funcName=steps.i["function"], input=steps.i["args"]
-            )
-
-        traceInfo(f"Finished setting up Futures")
-
-        traceInfo(f"Starting to evaluate future now")
-        finalOutput = await Output
-        traceInfo(f"Finished evaluating future now")
-
-        print(f"Final output = {finalOutput}")
 
     # endregion Class Methods
 
@@ -394,32 +374,10 @@ class Pipeline(object):
 
     # -------------------------------------------------------------------------
 
-    # region Python data slicers for accessing properties dynamically
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__getitem__
-    def __getitem__(self, name):
-        return getattr(self, name)
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__setitem__
-    def __setitem__(self, name, value):
-        return setattr(self, name, value)
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__delitem__
-    def __delitem__(self, name):
-        return delattr(self, name)
-
-    # Reference: https://docs.python.org/3/reference/datamodel.html#object.__contains__
-    def __contains__(self, name):
-        return hasattr(self, name)
-
-    # endregion Python data slicers for accessing properties dynamically
-
-    # -------------------------------------------------------------------------
-
     # region Nested Classes
 
     @classtrace
-    class Variables(object):
+    class _Variables(object):
         """
         A simple placeholder class for variables.
 
@@ -438,7 +396,7 @@ class Pipeline(object):
     # ---------------------------------
 
     @classtrace
-    class Connections(object):
+    class _Connections(object):
         """
         A simple placeholder class for connections.
 
@@ -457,34 +415,225 @@ class Pipeline(object):
             # Merge existing object's properties with incoming properties
             self.__dict__.update(connectionDictionary)
 
-    @classtrace
-    class Steps(object):
-        def __init__(self, steps: dict = {}):
-            procssedStepsDictionary = {
-                stepName: Pipeline.Steps.__processStep(step=stepDefinition)
-                for stepName, stepDefinition in steps.items()
-            }
-            # Merge existing object's properties with incoming properties
-            self.__dict__.update(procssedStepsDictionary)
+    # @classtrace
+    class _Steps(object):
+        def __init__(self, steps: list = []):
+            self._dg = nx.DiGraph()
 
-        def __processStep(step: dict = {}):
-            if type(step) != dict or len(step.keys()) <= 0:
-                raise ValueError(
-                    "Expected step to be like a dictionary of keys:value pairs"
+            for stepDefinition in steps:
+                stepObj = Pipeline._Steps._Step(
+                    stepDefinition=stepDefinition,
                 )
 
-            if len(step.keys()) == 1:
-                stepName = step.keys()[0]
-                outputStep = {
-                    "name": stepName,
-                    "function": stepName,
-                    "args": step[0],  # the sub-properties at this dictionary key
-                }
-            else:
-                outputStep = step
+                # Do not replace function, only step name
+                stepObj.name = self.__setup_dependencies_from_string_input(
+                    input=stepObj.name,
+                    stepName=stepObj.name,
+                )
+                if stepObj.name not in self._dg:
+                    self._dg.add_node(
+                        node_for_adding=stepObj.name, **{"stepObj": stepObj}
+                    )
+                if stepObj.args is not None:
+                    # Do not replace arg. Just track dependency
+                    for arg, value in stepObj.args.items():
+                        self.__setup_dependencies_from_string_input(
+                            input=value, stepName=stepObj.name
+                        )
 
-            return outputStep
+                # Merge existing object's properties with incoming properties
+                self.__dict__.update({stepObj.name: stepObj})
+
+            try:
+                graph_dependency_cycles = list(
+                    nx.find_cycle(self._dg, orientation="original")
+                )
+                if any(graph_dependency_cycles):
+                    raise RuntimeError(
+                        f"Found cycles in dependencies of steps. Check this dependency cycle: {graph_dependency_cycles}"
+                    )
+            except nx.NetworkXNoCycle as ex:
+                traceInfo(
+                    f"No cycles detected in dependency graph! This is good to have.",
+                    logLevel=logging.DEBUG,
+                )
+
+        def __setup_dependencies_from_string_input(
+            self, input: str, stepName: str
+        ) -> str:
+
+            if type(input) != str:
+                return input
+
+            expression_regex = re.compile(r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}")
+            expression_matched = re.findall(pattern=expression_regex, string=input)
+            if len(expression_matched) > 0:
+
+                for matched in expression_matched:
+
+                    dependentStepName = matched[0]
+                    dependentStepName = dependentStepName.strip()
+                    dependentStepName = dependentStepName.strip('"')
+                    dependentStepName = dependentStepName.strip("'")
+
+                    newStepNamePart = matched[1].join([dependentStepName, matched[2]])
+
+                    if dependentStepName not in self._dg:
+                        raise ValueError(
+                            f"_Step name '{newStepNamePart}' not found. "
+                            f"Expected it to be defined before processing '{input}'. "
+                            f"Change the order of steps so that '{newStepNamePart}' is defined before processing '{input}."
+                        )
+
+                    input = input.replace(
+                        "${steps["
+                        + matched[0]
+                        + "].output"
+                        + matched[1]
+                        + matched[2]
+                        + "}",
+                        newStepNamePart,
+                    )
+
+                self._dg.add_edge(dependentStepName, stepName)
+            return input
+
+        # @classtrace
+        class _Step(object):
+            def __init__(
+                self,
+                stepDefinition: dict = {},
+            ):
+                if type(stepDefinition) != dict:
+                    raise ValueError(
+                        "Expected step to be like a dictionary of keys:value pairs"
+                    )
+
+                if len(stepDefinition.keys()) == 1:
+                    stepName = list(stepDefinition.keys())[0]
+                    stepDefinition = {
+                        "name": stepName,
+                        "function": stepName,
+                        # the sub-properties at this dictionary key
+                        "args": stepDefinition.get(stepName, {}),
+                    }
+
+                # Merge existing object's properties with incoming properties
+                self.__dict__.update(stepDefinition)
+
+            def run(self) -> None:
+                functionHandle = _processStringForExpressions(input=self.function)
+                if type(functionHandle) == str:
+                    functionHandle = eval(functionHandle)
+
+                traceInfo(f"Starting pipeline steps['{self.name}']")
+
+                # Always set arguments to empty dictionary
+                self.args = {} if self.args is None else self.args
+                # Interpret all the arguments for any evaluated expressions
+                self.args = _processStringForExpressions(input=self.args)
+
+                self.output = functionHandle(**self.args)
+
+                traceInfo(f"Finished pipeline steps['{self.name}']")
+
+            # -------------------------------------------------------------------------
+
+        def run(self):
+            """Run all the steps in the pipeline
+
+            Args:
+                nodeName (str, optional): The starting node. Defaults to None.
+            """
+            while any(self._dg.nodes):
+                nodeNames = [
+                    # Get all nodes that have no dependencies
+                    node
+                    for node in self._dg.nodes
+                    if self._dg.in_degree(node) == 0
+                ]
+                for node in nodeNames:
+                    # Run this step
+                    self[node].run()
+
+                    # Remove the node from the Directed Graph:
+                    #   This means that we run nodes with no dependencies first and remove from them graph after execution
+                    #   and continue to discover more nodes with no dependencies until there are no more nodes left
+                    self._dg.remove_node(node)
+
+        # region Python data slicers for accessing properties dynamically
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__getitem__
+        def __getitem__(self, name):
+            return getattr(self, name)
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__setitem__
+        def __setitem__(self, name, value):
+            return setattr(self, name, value)
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__delitem__
+        def __delitem__(self, name):
+            return delattr(self, name)
+
+        # Reference: https://docs.python.org/3/reference/datamodel.html#object.__contains__
+        def __contains__(self, name):
+            return hasattr(self, name)
+
+        # endregion Python data slicers for accessing properties dynamically
+
+        # -------------------------------------------------------------------------
 
     # endregion Nested Classes
+
+    # -------------------------------------------------------------------------
+
+    # region Execution Methods
+
+    async def run(self) -> None:
+        self.steps.run()
+        # TODO: @rrmistry/@msuthar to discuss
+        # raise NotImplementedError("Run is not implemented yet")
+
+        # masterLoop = asyncio.get_running_loop()
+
+        # # Just for out local debugging we want to print all objects going into and out of functions
+        # # This is not recommended for production workloads as objects can be huge in memory and fill up console output making it hard to interpret
+        # # commonTraceSettings.printArguments = True
+        # commonTraceSettings.printOutputs = True
+
+        # traceInfo(f"Starting setting up Futures")
+        # # Below will happen as-is in existing pandas-etl code
+        # tqdm_function_list = tqdm(
+        #     iterable=steps,
+        #     unit=" function",
+        #     desc="YAML Steps",
+        #     colour="green",
+        # )
+        # for step in tqdm_function_list:
+        #     if "name" in step.keys():
+        #         function_name = step["name"]
+        #     else:
+        #         function_name = list(step.keys())[0]
+
+        #     tqdm_function_list.set_postfix_str(
+        #         "Function Name: "
+        #         + function_name
+        #         + "; Function Description: "
+        #         + step.get("description", "No description provided")
+        #     )
+
+        #     steps.i["output"] = Pipeline.get_function_future(
+        #         loop=masterLoop, funcName=steps.i["function"], input=steps.i["args"]
+        #     )
+
+        # traceInfo(f"Finished setting up Futures")
+
+        # traceInfo(f"Starting to evaluate future now")
+        # finalOutput = await Output
+        # traceInfo(f"Finished evaluating future now")
+
+        # print(f"Final output = {finalOutput}")
+
+    # endregion Execution Methods
 
     # -------------------------------------------------------------------------
