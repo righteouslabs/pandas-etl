@@ -544,8 +544,7 @@ class Pipeline(object):
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     for node in nodeNames:
                         # Run this step
-                        executor.submit(self[node].run())
-                        # self[node].run()
+                        executor.submit(self[node].run)
 
                         # Remove the node from the Directed Graph:
                         #   This means that we run nodes with no dependencies first and remove from them graph after execution
