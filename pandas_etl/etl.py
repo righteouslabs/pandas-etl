@@ -39,7 +39,7 @@ def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
     return output
 
 
-def _processStringForExpressions(input: str | dict) -> any:
+def _processStringForExpressions(input: str | dict | list) -> any:
     """
     Private function to process a string and replace placeholder `${expression}` with `expression value`
 
@@ -49,7 +49,7 @@ def _processStringForExpressions(input: str | dict) -> any:
         input (str|dict|object|any): Input string or dictionary or object to be evaluated
 
     Returns:
-        str: Output string or dictionary (always same time as input)
+        str: Output string or dictionary (always same type as input)
     """
     if type(input) == str:
         # Reference: https://docs.python.org/3/howto/regex.html#greedy-versus-non-greedy
@@ -87,6 +87,13 @@ def _processStringForExpressions(input: str | dict) -> any:
     elif type(input) == dict:
         output = {k: _processStringForExpressions(v) for k, v in input.items()}
         return output
+
+    elif type(input) == list:
+        output = input
+        for i in range(len(input)):
+            output[i] = _processStringForExpressions(input[i])
+        return output
+
     else:
         return input
 
@@ -381,12 +388,21 @@ class Pipeline(object):
                     stepName=stepObj.name,
                 )
                 self._dg.add_node(node_for_adding=stepObj.name, **{"stepObj": stepObj})
-                if stepObj.args is not None:
+                if stepObj.args is not None and type(stepObj.args) == dict:
                     # Do not replace arg. Just track dependency
                     for arg, value in stepObj.args.items():
                         self.__setup_dependencies_from_string_input(
                             input=value, input_type="args", stepName=stepObj.name
                         )
+                elif stepObj.args is not None and type(stepObj.args) == list:
+                    for value in stepObj.args:
+                        self.__setup_dependencies_from_string_input(
+                            input=value, input_type="args", stepName=stepObj.name
+                        )
+                elif stepObj.args is not None:
+                    self.__setup_dependencies_from_string_input(
+                        input=stepObj.args, input_type="args", stepName=stepObj.name
+                    )
 
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update({stepObj.name: stepObj})
@@ -406,47 +422,59 @@ class Pipeline(object):
                 )
 
         def __setup_dependencies_from_string_input(
-            self, input: str, input_type: str, stepName: str
+            self, input: str | list, input_type: str, stepName: str
         ) -> str:
 
-            if type(input) != str:
-                return input
+            if type(input) == str:
+                expression_regex = re.compile(
+                    r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}"
+                )
+                expression_matched = re.findall(pattern=expression_regex, string=input)
+                if len(expression_matched) > 0:
 
-            expression_regex = re.compile(r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}")
-            expression_matched = re.findall(pattern=expression_regex, string=input)
-            if len(expression_matched) > 0:
+                    for matched in expression_matched:
 
-                for matched in expression_matched:
+                        dependentStepName = matched[0]
+                        dependentStepName = dependentStepName.strip()
+                        dependentStepName = dependentStepName.strip('"')
+                        dependentStepName = dependentStepName.strip("'")
 
-                    dependentStepName = matched[0]
-                    dependentStepName = dependentStepName.strip()
-                    dependentStepName = dependentStepName.strip('"')
-                    dependentStepName = dependentStepName.strip("'")
-
-                    newStepNamePart = matched[1].join([dependentStepName, matched[2]])
-
-                    if dependentStepName not in self._dg:
-                        raise ValueError(
-                            f"_Step name '{dependentStepName}' not found. "
-                            f"Expected it to be defined before processing '{input}'. "
-                            f"Change the order of steps so that '{dependentStepName}' is defined before processing '{input}."
+                        newStepNamePart = matched[1].join(
+                            [dependentStepName, matched[2]]
                         )
 
-                    input = input.replace(
-                        "${steps["
-                        + matched[0]
-                        + "].output"
-                        + matched[1]
-                        + matched[2]
-                        + "}",
-                        newStepNamePart,
-                    )
+                        if dependentStepName not in self._dg:
+                            raise ValueError(
+                                f"_Step name '{dependentStepName}' not found. "
+                                f"Expected it to be defined before processing '{input}'. "
+                                f"Change the order of steps so that '{dependentStepName}' is defined before processing '{input}."
+                            )
 
-                if input_type == "stepName":
-                    self._dg.add_edge(dependentStepName, input)
-                elif input_type == "args":
-                    self._dg.add_edge(dependentStepName, stepName)
-            return input
+                        input = input.replace(
+                            "${steps["
+                            + matched[0]
+                            + "].output"
+                            + matched[1]
+                            + matched[2]
+                            + "}",
+                            newStepNamePart,
+                        )
+
+                    if input_type == "stepName":
+                        self._dg.add_edge(dependentStepName, input)
+                    elif input_type == "args":
+                        self._dg.add_edge(dependentStepName, stepName)
+                return input
+            elif type(input) == list:
+                for i in range(len(input)):
+                    if type(input[i]) != str:
+                        continue
+                    else:
+                        self.__setup_dependencies_from_string_input(
+                            input=input[i], input_type=input_type, stepName=stepName
+                        )
+            else:
+                return input
 
         # @classtrace
         class _Step(object):
@@ -483,7 +511,10 @@ class Pipeline(object):
                 # Interpret all the arguments for any evaluated expressions
                 self.args = _processStringForExpressions(input=self.args)
 
-                self.output = functionHandle(**self.args)
+                if type(self.args) == dict:
+                    self.output = functionHandle(**self.args)
+                else:
+                    self.output = functionHandle(self.args)
 
                 traceInfo(f"Finished pipeline steps['{self.name}']")
 
