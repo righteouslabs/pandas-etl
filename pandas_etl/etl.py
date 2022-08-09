@@ -39,7 +39,7 @@ def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
     return output
 
 
-def _processStringForExpressions(input: str | dict | list) -> any:
+def _processStringForExpressions(input: any) -> any:
     """
     Private function to process a string and replace placeholder `${expression}` with `expression value`
 
