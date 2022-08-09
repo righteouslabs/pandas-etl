@@ -24,7 +24,7 @@ def get_postgresql_engine(docker_services):
     for retry in range(0, 10):
         try:
             engine = create_engine(
-                url=create_engine_conn_url(
+                url=create_engine_conn_url.create(
                     drivername="postgresql+psycopg2",
                     host="localhost",
                     database="pandas_etl_test_db",
