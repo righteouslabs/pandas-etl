@@ -7,6 +7,37 @@ import uuid
 from sqlalchemy.engine.base import Engine as Engine
 
 
+@pytest.fixture(scope="session")
+def file(pytestconfig):
+    return pytestconfig.getoption("file")
+
+
+@pytest.fixture(scope="session")
+def imports(pytestconfig):
+    return pytestconfig.getoption("imports")
+
+
+@pytest.fixture(scope="session")
+def var(pytestconfig):
+    return pytestconfig.getoption("var")
+
+
+class TestCommandLineArguments:
+    # Usage: pytest -v -s tests/test_etl.py --file "./tests/mockup.yaml" --var "varName1=varValue1" --imports "xyz.yaml"
+
+    def test_cl_argument_file(self, file):
+        if file:
+            assert file == "./tests/mockup.yaml"
+
+    def test_cl_argument_imports(self, imports):
+        if imports:
+            assert imports == ["xyz.yaml"]
+
+    def test_cl_argument_variables(self, var):
+        if var:
+            assert var == ["varName1=varValue1"]
+
+
 class TestAddArgumentVariables:
     def setup_class(self):
         self.overrideVariables = {

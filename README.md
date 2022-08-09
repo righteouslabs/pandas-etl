@@ -9,8 +9,9 @@ pip install pandas-etl
 
 ## Usage 📝
 
-YAML Config (`my-run.yaml` file):
+#### YAML Config:
 
+`my-run.yaml`
 ```YAML
 variables:
   server: MY_SERVER_NAME.MYDOMAIN.COM
@@ -72,4 +73,67 @@ Running this YAML config
 
 ```bash
 python -m pandas_etl --file "./my-run.yaml"
+```
+
+#### YAML Config (short-hand format) with Imports `--imports` and override Variables `--var`:
+
+`my-run.yaml`
+```YAML
+preFlight:
+  script: |
+    import pandas as
+
+imports:
+- ./etl_definition_folder/variables/postgresql_database_variables.yaml
+
+connections:
+  my_database: postgresql+psycopg2://${var.username}:${var.password}@${var.server}:${var.postgresql_port}/${var.database}
+
+steps:
+
+- pd.read_sql:
+    sql: |
+      SELECT
+        int_column,
+        date_column
+      FROM
+        test_data
+    con: ${conn.my-source}
+    index_col: int_column
+    parse_dates: {"date_column": {"format": "%d/%m/%y"}}
+
+- pd.Grouper:
+    key: date_column
+    freq: W-MON
+
+- ${steps['pd.read_csv'].output.groupby}:
+    by: ${steps['pd.Grouper'].output}
+    axis: columns
+    dropna: false
+
+- ${steps['pd.read_csv.groupby'].output.max}:
+
+- ${steps['pd.read_csv.groupby.max'].output.to_csv}:
+    path_or_buf: ./my-aggregated-data.csv
+```
+
+##### Variables:
+
+`postgresql_database_variables.yaml`
+```YAML
+variables:
+  server: MY_SERVER_NAME.MYDOMAIN.COM
+  database: MY_DATABASE
+```
+`postgresql_database-secret_variables.yaml`
+```YAML
+variables:
+  username: postgres
+  password: password
+```
+
+Running this YAML config
+
+```bash
+python -m pandas_etl --file "./my-run.yaml" --imports "./etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml" --var "postgresql_port=9999"
 ```

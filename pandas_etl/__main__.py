@@ -10,7 +10,7 @@ def cl_args_parser():
         prog="pandas-etl",
         # usage='',
         description="A utility for running YAML config as Pandas based ETL code",
-        epilog="For Example: python -m pandas_etl --file '<YAML_FILE_PATH>' --var varName1=varValue1 varName2=varValue2 --imports 'xyz.yml' --var varName3=varValue3 ...",
+        epilog="""For Example: python -m pandas_etl --file "<YAML_FILE_PATH>" --var "varName1=varValue1" "varName2=varValue2 --imports "<IMPORT_FILE_PATH>" --var "varName3=varValue3" ...""",
     )
 
     parser.add_argument(
@@ -18,7 +18,7 @@ def cl_args_parser():
         "--file",
         help="Path to yaml config file",
         required=True,
-        metavar="'usr/dir/file.yaml'",
+        metavar='"usr/dir/file.yaml"',
     )
     parser.add_argument(
         "-i",
@@ -26,7 +26,7 @@ def cl_args_parser():
         action="extend",
         nargs="*",
         help="Add or override imports",
-        metavar="'./vars/sql-db1.yaml'",
+        metavar='"./vars/sql-db1.yaml"',
     )
     parser.add_argument(
         "-v",
@@ -34,7 +34,7 @@ def cl_args_parser():
         action="extend",
         nargs="*",
         help="Define new variables or overwrite existing variables",
-        metavar="varName1=varValue1",
+        metavar='"varName1=varValue1"',
     )
 
     return parser

@@ -375,18 +375,17 @@ class Pipeline(object):
                 )
 
                 # Do not replace function, only step name
-                stepObj.name = (
-                    self.__setup_dependencies_from_string_input_for_step_name(
-                        input=stepObj.name,
-                        stepName=stepObj.name,
-                    )
+                stepObj.name = self.__setup_dependencies_from_string_input(
+                    input=stepObj.name,
+                    input_type="stepName",
+                    stepName=stepObj.name,
                 )
                 self._dg.add_node(node_for_adding=stepObj.name, **{"stepObj": stepObj})
                 if stepObj.args is not None:
                     # Do not replace arg. Just track dependency
                     for arg, value in stepObj.args.items():
                         self.__setup_dependencies_from_string_input(
-                            input=value, stepName=stepObj.name
+                            input=value, input_type="args", stepName=stepObj.name
                         )
 
                 # Merge existing object's properties with incoming properties
@@ -406,48 +405,8 @@ class Pipeline(object):
                     logLevel=logging.DEBUG,
                 )
 
-        def __setup_dependencies_from_string_input_for_step_name(
-            self, input: str, stepName: str
-        ) -> str:
-
-            if type(input) != str:
-                return input
-
-            expression_regex = re.compile(r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}")
-            expression_matched = re.findall(pattern=expression_regex, string=input)
-            if len(expression_matched) > 0:
-
-                for matched in expression_matched:
-
-                    dependentStepName = matched[0]
-                    dependentStepName = dependentStepName.strip()
-                    dependentStepName = dependentStepName.strip('"')
-                    dependentStepName = dependentStepName.strip("'")
-
-                    newStepNamePart = matched[1].join([dependentStepName, matched[2]])
-
-                    if dependentStepName not in self._dg:
-                        raise ValueError(
-                            f"_Step name '{dependentStepName}' not found. "
-                            f"Expected it to be defined before processing '{input}'. "
-                            f"Change the order of steps so that '{dependentStepName}' is defined before processing '{input}."
-                        )
-
-                    input = input.replace(
-                        "${steps["
-                        + matched[0]
-                        + "].output"
-                        + matched[1]
-                        + matched[2]
-                        + "}",
-                        newStepNamePart,
-                    )
-
-                self._dg.add_edge(dependentStepName, input)
-            return input
-
         def __setup_dependencies_from_string_input(
-            self, input: str, stepName: str
+            self, input: str, input_type: str, stepName: str
         ) -> str:
 
             if type(input) != str:
@@ -483,7 +442,10 @@ class Pipeline(object):
                         newStepNamePart,
                     )
 
-                self._dg.add_edge(dependentStepName, stepName)
+                if input_type == "stepName":
+                    self._dg.add_edge(dependentStepName, input)
+                elif input_type == "args":
+                    self._dg.add_edge(dependentStepName, stepName)
             return input
 
         # @classtrace
