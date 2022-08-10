@@ -1,9 +1,12 @@
+import logging
 import os
+import pathlib
 import pytest
 import yaml
 from pandas_etl import etl
 import sqlalchemy
 import uuid
+from calltraces.linetrace import traceWarning
 from sqlalchemy.engine.base import Engine as Engine
 
 
@@ -194,12 +197,12 @@ class TestPipelineRun:
             - pd.read_csv:
                 filepath_or_buffer: ./tests/data/test.csv
 
-            - ${steps['pd.read_csv'].output.groupby}:
+            - ${ steps['pd.read_csv'].output.groupby }:
                 by: AB
 
-            - ${steps['pd.read_csv.groupby'].output.max}:
+            - ${ steps['pd.read_csv.groupby'].output.max }:
 
-            - ${steps['pd.read_csv.groupby.max'].output.to_csv}:
+            - ${ steps['pd.read_csv.groupby.max'].output.to_csv }:
                 path_or_buf: ${os.path.dirname(steps['pd.read_csv'].args['filepath_or_buffer'])}/output_in_same_folder_as_input.csv
             """
         )
@@ -219,3 +222,74 @@ class TestPipelineRun:
 
         # Delete the output file for cleanup
         os.remove(path=expected_output_file_path)
+
+
+class TestPipelineRunRecovery:
+    def test_run_pandas_recovery_pipeline(self, caplog):
+        root_yaml_folder = "./tests/etl_definition_folder/pipelines"
+        root_yaml_file_path = f"{root_yaml_folder}/pandas_pipeline_recovery_1.yaml"
+        path_components = pathlib.Path(root_yaml_file_path)
+        expected_progress_file_path = os.path.join(
+            path_components.parent,
+            path_components.stem + ".pandas_etl" + path_components.suffix,
+        )
+        # Define the path of the expected output file
+        expected_output_file_path = "./tests/data/max.csv"
+
+        # Remove files before running pipeline
+        if os.path.exists(path=expected_output_file_path):
+            os.remove(path=expected_output_file_path)
+        if os.path.exists(path=expected_progress_file_path):
+            os.remove(path=expected_progress_file_path)
+
+        # Run the pipeline first time
+        # Reference: https://docs.pytest.org/en/6.2.x/logging.html#caplog-fixture
+        with caplog.at_level(logging.INFO):
+            pipelineObj = etl.Pipeline(yamlData=root_yaml_file_path)
+            pipelineObj.run()
+            # TODO: @msuthar: Check logs to confirm that long_running_function executed
+            # assert (
+            #     any(
+            #         [
+            #             record
+            #             for record in caplog.records
+            #             if record.message == "Starting long_running_function..."
+            #         ]
+            #     )
+            #     == True
+            # )
+
+        # TODO: @msuthar: Check that the output file has been created
+        assert os.path.exists(path=expected_output_file_path)
+
+        if not os.path.exists(path=expected_output_file_path):
+            traceWarning(f"Expected file {expected_output_file_path} to exist")
+        else:
+            # Delete the output file for cleanup
+            os.remove(path=expected_output_file_path)
+
+        # TODO: @msuthar: Check that the progress file has been created
+        # assert os.path.exists(path=expected_progress_file_path)
+
+        if not os.path.exists(path=expected_progress_file_path):
+            traceWarning(f"Expected file {expected_progress_file_path} to exist")
+        else:
+            # Delete the output file for cleanup
+            os.remove(path=expected_progress_file_path)
+
+        # Run the pipeline second time
+        # Reference: https://docs.pytest.org/en/6.2.x/logging.html#caplog-fixture
+        with caplog.at_level(logging.INFO):
+            pipelineObj = etl.Pipeline(yamlData=root_yaml_file_path)
+            pipelineObj.run()
+            # TODO: @msuthar: Check logs to confirm that long_running_function **DID NOT** get executed
+            assert (
+                any(
+                    [
+                        record
+                        for record in caplog.records
+                        if record.message == "Starting long_running_function..."
+                    ]
+                )
+                == False
+            )

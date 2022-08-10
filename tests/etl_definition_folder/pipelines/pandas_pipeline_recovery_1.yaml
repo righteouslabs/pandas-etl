@@ -13,8 +13,9 @@ preFlight:
       # if property `resumeFromSaved` is true (default) then do not run the function if `saveProgress` file exists
       # if property `resumeFromSaved` is false then run the function regardless if `saveProgress` file exists or not
       logging.info("Starting long_running_function...")
+      # print("Running long_running_function...")
 
-      return df.groupby(by="AB")
+      return df.groupby(by="AB").max()
 
 variables:
   workingDataFolder: ./tests/data
@@ -47,3 +48,4 @@ steps:
 - name:             pd.concat.max
   function:         ${ steps['pd.concat'].output.max }
   saveProgress:     ${var.workingDataFolder}/max.csv
+  resumeFromSaved:  true

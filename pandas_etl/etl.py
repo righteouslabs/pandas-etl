@@ -1,10 +1,11 @@
 import concurrent.futures
 import logging
 import os
+import pathlib
 import re
-
-import networkx as nx
 import yaml
+import networkx as nx
+import pandas as pd
 from calltraces.classtrace import classtrace
 from calltraces.functiontrace import functiontrace
 from calltraces.linetrace import traceError, traceInfo
@@ -124,6 +125,20 @@ class Pipeline(object):
         """
 
         if type(yamlData) == str:
+            if os.path.exists(yamlData):
+                traceInfo(f"Loading yaml config from file {yamlData}")
+                path_components = pathlib.Path(yamlData)
+                with open(yamlData, mode="r", encoding="utf-8") as f:
+                    yamlData = f.read()
+
+                self.progress_file_path = os.path.join(
+                    path_components.parent,
+                    path_components.stem + ".pandas_etl" + path_components.suffix,
+                )
+
+                globals()["progress_file_path"] = self.progress_file_path
+            else:
+                traceInfo(f"Parsing YAML from memory")
             # Parse YAML string to in-memory object
             yamlData = Pipeline.from_yaml_to_dict(yamlStr=yamlData)
             traceInfo(f"Main YAML definition loaded from: {yamlData}")
@@ -212,12 +227,6 @@ class Pipeline(object):
         Returns
         -------
         """
-        if type(yamlStr) == str and os.path.exists(yamlStr):
-            traceInfo(f"Loading yaml config from file {yamlStr}")
-            with open(yamlStr, mode="r", encoding="utf-8") as f:
-                yamlStr = f.read()
-        else:
-            traceInfo(f"Parsing YAML from memory")
         output = yaml.load(yamlStr, Loader=yaml.FullLoader)
         return output
 
@@ -394,6 +403,13 @@ class Pipeline(object):
                     stepName=stepObj.name,
                 )
                 self._dg.add_node(node_for_adding=stepObj.name, **{"stepObj": stepObj})
+
+                self.__setup_dependencies_from_string_input(
+                    input=stepObj.function,
+                    input_type="function",
+                    stepName=stepObj.name,
+                )
+
                 if stepObj.args is not None and type(stepObj.args) == dict:
                     # Do not replace arg. Just track dependency
                     for arg, value in stepObj.args.items():
@@ -445,8 +461,8 @@ class Pipeline(object):
                         dependentStepName = dependentStepName.strip('"')
                         dependentStepName = dependentStepName.strip("'")
 
-                        newStepNamePart = matched[2].join(
-                            [dependentStepName, matched[3]]
+                        newStepNamePart = (
+                            matched[2].join([dependentStepName, matched[4]]).strip()
                         )
 
                         if dependentStepName not in self._dg:
@@ -471,7 +487,7 @@ class Pipeline(object):
 
                     if input_type == "stepName":
                         self._dg.add_edge(dependentStepName, input)
-                    elif input_type == "args":
+                    elif input_type == "args" or input_type == "function":
                         self._dg.add_edge(dependentStepName, stepName)
                 return input
             elif type(input) == list:
@@ -508,6 +524,12 @@ class Pipeline(object):
                 if not "args" in stepDefinition.keys():
                     stepDefinition["args"] = {}
 
+                if not "resumeFromSaved" in stepDefinition.keys():
+                    stepDefinition["resumeFromSaved"] = False
+
+                if not "saveProgress" in stepDefinition.keys():
+                    stepDefinition["saveProgress"] = ""
+
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update(stepDefinition)
 
@@ -529,6 +551,12 @@ class Pipeline(object):
                     self.output = functionHandle(*self.args)
                 else:
                     self.output = functionHandle(self.args)
+
+                if self.saveProgress:
+                    path_or_buf = _processStringForExpressions(self.saveProgress)
+                    dataframe = self.output
+                    if path_or_buf.split(".")[-1] == "csv":
+                        dataframe.to_csv(path_or_buf)
 
                 traceInfo(f"Finished pipeline steps['{self.name}']")
 
@@ -557,8 +585,17 @@ class Pipeline(object):
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     for node in nodeNames:
-                        # Run this step
-                        executor.submit(self[node].run)
+                        # Check if the step has already been executed before and resumeFromSaved
+                        if self[node].resumeFromSaved and os.path.exists(
+                            path=_processStringForExpressions(self[node].saveProgress)
+                        ):
+                            self[node].output = pd.read_csv(
+                                _processStringForExpressions(self[node].saveProgress)
+                            )
+
+                        else:
+                            # Run this step
+                            executor.submit(self[node].run)
 
                         # Remove the node from the Directed Graph:
                         #   This means that we run nodes with no dependencies first and remove from them graph after execution

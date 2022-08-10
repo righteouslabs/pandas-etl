@@ -48,20 +48,8 @@ if __name__ == "__main__":
         parser.print_help()
         sys.exit(0)
 
-    try:
-        if os.path.exists(args.file):
-            if args.file.endswith((".yml", ".yaml")):
-                with open(args.file) as f:
-                    data = f.read()
-            else:
-                raise ValueError(f"Wrong file extension for file: {args.file}")
-        else:
-            raise FileNotFoundError(f"No such file: {args.file}")
-    except:
-        raise ValueError(f"Wrong Yaml file Path input: {args.file}")
-
     pipelineObj = Pipeline(
-        yamlData=data,
+        yamlData=args.file,
         overrideVariables=parse_command_line_variables(variables=args.var),
         includeImports=args.imports,
     )
