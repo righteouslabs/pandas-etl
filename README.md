@@ -26,47 +26,38 @@ connections:
 
 steps:
 
-- name: source-df # Unique step name in pipeline
-  description: Read from my PostgreSQL server
-  function: pd.read_sql # Call static function
-  args: # Key-word based parameter input
-    sql: |
-      SELECT
-        int_column,
-        date_column
-      FROM
-        test_data
-    con: ${conn.my-source}
-    index_col: int_column
-    parse_dates: {"date_column": {"format": "%d/%m/%y"}}
+- name:           source-df # Unique step name in pipeline
+  description:    Read from my PostgreSQL server
+  function:       pd.read_sql # Call static function
+  args:           # Key-word based parameter input
+    sql:          |
+                  SELECT int_column, date_column
+                  FROM test_data
+    con:          ${ conn.my_source }
+    index_col:    int_column
+    parse_dates:  { "date_column": { "format": "%d/%m/%y" } }
 
-- name: Grouper for date column
-  function: pd.Grouper
+- name:           Grouper for date column
+  function:       pd.Grouper
   args:
-    key: date_column
-    freq: W-MON
+    key:          date_column
+    freq:         W-MON
 
-- name: group-data
-  description: Group data by int and date columns every week
-  function: # Call object specific function
-    object: ${steps['source-df'].output}
-    name: groupby
+- name:           group-data
+  description:    Group data by int and date columns every week
+  function:       ${ steps['source-df'].output.groupby }
   args:
-    by: ${steps['Grouper for date column'].output}
-    axis: columns
-    dropna: false
+    by:           ${steps['Grouper for date column'].output}
+    axis:         columns
+    dropna:       false
 
-- name: aggregate-data
-  function: # Call object specific function
-    object: ${steps['group-data'].output}
-    name: max
+- name:           aggregate-data
+  function:       ${ steps['group-data'].output.max }
 
-- name: save-data
-  function: # Call object specific function
-    object: ${steps['aggregate-data'].output}
-    name: to_csv
-  args: # Non-key-word based parameter input
-  - ./my-aggregated-data.csv
+- name:           save-data
+  function:       ${ steps['aggregate-data'].output.to_csv }
+  args:
+                  - ./my-aggregated-data.csv
 ```
 
 Running this YAML config
@@ -75,9 +66,12 @@ Running this YAML config
 python -m pandas_etl --file "./my-run.yaml"
 ```
 
-#### YAML Config (short-hand format) with Imports `--imports` and override Variables `--var`:
+## YAML Config (short-hand format)
+Functions can be written in short-hand to optimize readability and minimize overall size of config file.
 
-`my-run.yaml`
+Below is working example with Imports `--imports` and override Variables `--var`:
+
+### `my-run.yaml`
 ```YAML
 preFlight:
   script: |
@@ -92,47 +86,45 @@ connections:
 steps:
 
 - pd.read_sql:
-    sql: |
-      SELECT
-        int_column,
-        date_column
-      FROM
-        test_data
-    con: ${conn.my-source}
-    index_col: int_column
-    parse_dates: {"date_column": {"format": "%d/%m/%y"}}
+    sql:          |
+                  SELECT int_column, date_column
+                  FROM test_data
+    con:          ${ conn.my_database }
+    index_col:    int_column
+    parse_dates:  { "date_column": { "format": "%d/%m/%y" } }
 
 - pd.Grouper:
-    key: date_column
-    freq: W-MON
+    key:          date_column
+    freq:         W-MON
 
-- ${steps['pd.read_csv'].output.groupby}:
-    by: ${steps['pd.Grouper'].output}
-    axis: columns
-    dropna: false
+- ${ steps['pd.read_csv'].output.groupby }:
+    by:           ${steps['pd.Grouper'].output}
+    axis:         columns
+    dropna:       false
 
-- ${steps['pd.read_csv.groupby'].output.max}:
+- ${ steps['pd.read_csv.groupby'].output.max }:
 
-- ${steps['pd.read_csv.groupby.max'].output.to_csv}:
-    path_or_buf: ./my-aggregated-data.csv
+- ${ steps['pd.read_csv.groupby.max'].output.to_csv }:
+    path_or_buf:  ./my-aggregated-data.csv
 ```
 
-##### Variables:
+## Variables:
 
-`postgresql_database_variables.yaml`
+### `postgresql_database_variables.yaml`
 ```YAML
 variables:
-  server: MY_SERVER_NAME.MYDOMAIN.COM
+  server:   MY_SERVER_NAME.MYDOMAIN.COM
   database: MY_DATABASE
 ```
-`postgresql_database-secret_variables.yaml`
+
+### `postgresql_database-secret_variables.yaml`
 ```YAML
 variables:
   username: postgres
   password: password
 ```
 
-Running this YAML config
+## Running this YAML config from command line:
 
 ```bash
 python -m pandas_etl --file "./my-run.yaml" --imports "./etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml" --var "postgresql_port=9999"
