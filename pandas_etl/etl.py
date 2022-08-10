@@ -212,6 +212,12 @@ class Pipeline(object):
         Returns
         -------
         """
+        if os.path.exists(yamlStr):
+            traceInfo(f"Loading yaml config from file {yamlStr}")
+            with open(yamlStr, mode="r", encoding="utf-8") as f:
+                yamlStr = f.read()
+        else:
+            traceInfo(f"Parsing YAML from memory")
         output = yaml.load(yamlStr, Loader=yaml.FullLoader)
         return output
 
@@ -427,20 +433,20 @@ class Pipeline(object):
 
             if type(input) == str:
                 expression_regex = re.compile(
-                    r"\$\{steps\[(.*?)\]\.output(\.)?(\w*?)\}"
+                    r"\$\{(.*)steps\[(.*?)\]\.output(\.)?(\w*?)(.*)\}"
                 )
                 expression_matched = re.findall(pattern=expression_regex, string=input)
                 if len(expression_matched) > 0:
 
                     for matched in expression_matched:
 
-                        dependentStepName = matched[0]
+                        dependentStepName = matched[1]
                         dependentStepName = dependentStepName.strip()
                         dependentStepName = dependentStepName.strip('"')
                         dependentStepName = dependentStepName.strip("'")
 
-                        newStepNamePart = matched[1].join(
-                            [dependentStepName, matched[2]]
+                        newStepNamePart = matched[2].join(
+                            [dependentStepName, matched[3]]
                         )
 
                         if dependentStepName not in self._dg:
@@ -451,11 +457,14 @@ class Pipeline(object):
                             )
 
                         input = input.replace(
-                            "${steps["
+                            "${"
                             + matched[0]
-                            + "].output"
+                            + "steps["
                             + matched[1]
+                            + "].output"
                             + matched[2]
+                            + matched[3]
+                            + matched[4]
                             + "}",
                             newStepNamePart,
                         )
@@ -496,6 +505,9 @@ class Pipeline(object):
                         "args": stepDefinition.get(stepName, {}),
                     }
 
+                if not "args" in stepDefinition.keys():
+                    stepDefinition["args"] = {}
+
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update(stepDefinition)
 
@@ -513,6 +525,8 @@ class Pipeline(object):
 
                 if type(self.args) == dict:
                     self.output = functionHandle(**self.args)
+                elif type(self.args) == list:
+                    self.output = functionHandle(*self.args)
                 else:
                     self.output = functionHandle(self.args)
 
