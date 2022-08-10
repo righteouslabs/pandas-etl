@@ -212,7 +212,7 @@ class Pipeline(object):
         Returns
         -------
         """
-        if os.path.exists(yamlStr):
+        if type(yamlStr) == str and os.path.exists(yamlStr):
             traceInfo(f"Loading yaml config from file {yamlStr}")
             with open(yamlStr, mode="r", encoding="utf-8") as f:
                 yamlStr = f.read()
