@@ -137,6 +137,19 @@ class Pipeline(object):
                 )
 
                 globals()["progress_file_path"] = self.progress_file_path
+
+                if os.path.exists(self.progress_file_path):
+                    with open(self.progress_file_path, mode="r", encoding="utf-8") as f:
+                        yamlDataSaved = f.read()
+
+                    yamlDataSaved = Pipeline.from_yaml_to_dict(yamlStr=yamlDataSaved)
+                    if yamlDataSaved is None:
+                        yamlDataSaved = {"steps": {}}
+                    traceInfo(f"Saved YAML definition loaded from: {yamlDataSaved}")
+                else:
+                    yamlDataSaved = {"steps": {}}
+                globals()["yamlDataSaved"] = yamlDataSaved
+
             else:
                 traceInfo(f"Parsing YAML from memory")
             # Parse YAML string to in-memory object
@@ -525,7 +538,7 @@ class Pipeline(object):
                     stepDefinition["args"] = {}
 
                 if not "resumeFromSaved" in stepDefinition.keys():
-                    stepDefinition["resumeFromSaved"] = False
+                    stepDefinition["resumeFromSaved"] = True
 
                 if not "saveProgress" in stepDefinition.keys():
                     stepDefinition["saveProgress"] = ""
@@ -552,11 +565,17 @@ class Pipeline(object):
                 else:
                     self.output = functionHandle(self.args)
 
+                globals()["yamlDataSaved"]["steps"][self.name] = (
+                    globals()["steps"].__dict__[self.name].__dict__
+                )
+
                 if self.saveProgress:
                     path_or_buf = _processStringForExpressions(self.saveProgress)
                     dataframe = self.output
                     if path_or_buf.split(".")[-1] == "csv":
                         dataframe.to_csv(path_or_buf)
+
+                    globals()["yamlDataSaved"]["steps"][self.name].pop("output")
 
                 traceInfo(f"Finished pipeline steps['{self.name}']")
 
@@ -586,7 +605,16 @@ class Pipeline(object):
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     for node in nodeNames:
                         # Check if the step has already been executed before and resumeFromSaved
-                        if self[node].resumeFromSaved and os.path.exists(
+                        if self[node].resumeFromSaved and globals()["yamlDataSaved"][
+                            "steps"
+                        ].get(self[node].name, {}).get("output", ""):
+                            self[node].output = (
+                                globals()["yamlDataSaved"]["steps"]
+                                .get(self[node].name, {})
+                                .get("output", "")
+                            )
+
+                        elif self[node].resumeFromSaved and os.path.exists(
                             path=_processStringForExpressions(self[node].saveProgress)
                         ):
                             self[node].output = pd.read_csv(
@@ -605,6 +633,15 @@ class Pipeline(object):
                     executor.shutdown(wait=True)
 
                 tqdm_list.update(len(nodeNames))
+
+            with open(
+                globals()["progress_file_path"],
+                mode="w",
+            ) as f:
+                yaml.dump(
+                    globals()["yamlDataSaved"],
+                    f,
+                )
 
         # region Python data slicers for accessing properties dynamically
 
