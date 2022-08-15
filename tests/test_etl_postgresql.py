@@ -6,6 +6,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL as create_engine_conn_url
 
+from pandas_etl import etl
+
 
 @pytest.fixture(scope="session")
 def docker_compose_file():
@@ -14,7 +16,7 @@ def docker_compose_file():
 
 @pytest.fixture(scope="session")
 def docker_compose_project_name():
-    return "pandas-etl-tests"
+    return "pandas-etl-tests-msuthar09-testing"
 
 
 @pytest.fixture(scope="session")
@@ -49,5 +51,27 @@ def get_postgresql_engine(docker_services):
 
 
 def test_postgre_sql(get_postgresql_engine):
-    df = pd.read_sql("SELECT * FROM information_schema.schemata", get_postgresql_engine)
+
+    pipelineTestObj = etl.Pipeline(
+        yamlData="""
+            imports:
+            - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
+            - ./tests/mockup.yaml
+            connections:
+              postgre_sql: postgresql+psycopg2://${var.username}:${var.password}@${var.server}:${var.postgresql_port}/${var.database}
+
+            steps:
+            - ${ steps['pd.read_csv.groupby.max'].output.to_sql }:
+                name:         "pytest_output_table"
+                if_exists:    "replace"
+                index:        False
+                con:          ${ conn.postgre_sql }
+            """,
+        includeImports=[
+            "./tests/etl_definition_folder/variables/secrets/postgresql_database-secret_variables.yaml"
+        ],
+        overrideVariables={"postgresql_port": 5432},
+    )
+
+    df = pd.read_sql("SELECT * FROM pytest_output_table", get_postgresql_engine)
     print(df)

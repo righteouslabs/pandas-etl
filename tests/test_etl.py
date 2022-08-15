@@ -1,8 +1,6 @@
 import logging
 import os
-import pathlib
 import pytest
-import yaml
 from pandas_etl import etl
 import sqlalchemy
 import uuid
@@ -228,38 +226,36 @@ class TestPipelineRunRecovery:
     def test_run_pandas_recovery_pipeline(self, caplog):
         root_yaml_folder = "./tests/etl_definition_folder/pipelines"
         root_yaml_file_path = f"{root_yaml_folder}/pandas_pipeline_recovery_1.yaml"
-        path_components = pathlib.Path(root_yaml_file_path)
-        expected_progress_file_path = os.path.join(
-            path_components.parent,
-            path_components.stem + ".pandas_etl" + path_components.suffix,
-        )
         # Define the path of the expected output file
         expected_output_file_path = "./tests/data/max.csv"
+        expected_output_file_path1 = "./tests/data/groupby_Instance1.csv"
+        expected_output_file_path2 = "./tests/data/groupby_Instance2.csv"
 
         # Remove files before running pipeline
         if os.path.exists(path=expected_output_file_path):
             os.remove(path=expected_output_file_path)
-        if os.path.exists(path=expected_progress_file_path):
-            os.remove(path=expected_progress_file_path)
+        if os.path.exists(path=expected_output_file_path1):
+            os.remove(path=expected_output_file_path1)
+        if os.path.exists(path=expected_output_file_path2):
+            os.remove(path=expected_output_file_path2)
 
         # Run the pipeline first time
         # Reference: https://docs.pytest.org/en/6.2.x/logging.html#caplog-fixture
         with caplog.at_level(logging.INFO):
             pipelineObj = etl.Pipeline(yamlData=root_yaml_file_path)
             pipelineObj.run()
-            # TODO: @msuthar: Check logs to confirm that long_running_function executed
-            # assert (
-            #     any(
-            #         [
-            #             record
-            #             for record in caplog.records
-            #             if record.message == "Starting long_running_function..."
-            #         ]
-            #     )
-            #     == True
-            # )
 
-        # TODO: @msuthar: Check that the output file has been created
+            assert (
+                any(
+                    [
+                        record
+                        for record in caplog.records
+                        if record.message == "Starting long_running_function..."
+                    ]
+                )
+                == True
+            )
+
         assert os.path.exists(path=expected_output_file_path)
 
         if not os.path.exists(path=expected_output_file_path):
@@ -268,21 +264,15 @@ class TestPipelineRunRecovery:
             # Delete the output file for cleanup
             os.remove(path=expected_output_file_path)
 
-        # TODO: @msuthar: Check that the progress file has been created
-        # assert os.path.exists(path=expected_progress_file_path)
-
-        if not os.path.exists(path=expected_progress_file_path):
-            traceWarning(f"Expected file {expected_progress_file_path} to exist")
-        else:
-            # Delete the output file for cleanup
-            os.remove(path=expected_progress_file_path)
+        # Remove all the logs from records
+        caplog.clear()
 
         # Run the pipeline second time
         # Reference: https://docs.pytest.org/en/6.2.x/logging.html#caplog-fixture
         with caplog.at_level(logging.INFO):
             pipelineObj = etl.Pipeline(yamlData=root_yaml_file_path)
             pipelineObj.run()
-            # TODO: @msuthar: Check logs to confirm that long_running_function **DID NOT** get executed
+
             assert (
                 any(
                     [
@@ -293,3 +283,11 @@ class TestPipelineRunRecovery:
                 )
                 == False
             )
+
+        # Remove files after running pipeline
+        if os.path.exists(path=expected_output_file_path):
+            os.remove(path=expected_output_file_path)
+        if os.path.exists(path=expected_output_file_path1):
+            os.remove(path=expected_output_file_path1)
+        if os.path.exists(path=expected_output_file_path2):
+            os.remove(path=expected_output_file_path2)

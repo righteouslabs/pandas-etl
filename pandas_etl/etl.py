@@ -1,7 +1,6 @@
 import concurrent.futures
 import logging
 import os
-import pathlib
 import re
 import yaml
 import networkx as nx
@@ -127,28 +126,8 @@ class Pipeline(object):
         if type(yamlData) == str:
             if os.path.exists(yamlData):
                 traceInfo(f"Loading yaml config from file {yamlData}")
-                path_components = pathlib.Path(yamlData)
                 with open(yamlData, mode="r", encoding="utf-8") as f:
                     yamlData = f.read()
-
-                self.progress_file_path = os.path.join(
-                    path_components.parent,
-                    path_components.stem + ".pandas_etl" + path_components.suffix,
-                )
-
-                globals()["progress_file_path"] = self.progress_file_path
-
-                if os.path.exists(self.progress_file_path):
-                    with open(self.progress_file_path, mode="r", encoding="utf-8") as f:
-                        yamlDataSaved = f.read()
-
-                    yamlDataSaved = Pipeline.from_yaml_to_dict(yamlStr=yamlDataSaved)
-                    if yamlDataSaved is None:
-                        yamlDataSaved = {"steps": {}}
-                    traceInfo(f"Saved YAML definition loaded from: {yamlDataSaved}")
-                else:
-                    yamlDataSaved = {"steps": {}}
-                globals()["yamlDataSaved"] = yamlDataSaved
 
             else:
                 traceInfo(f"Parsing YAML from memory")
@@ -266,9 +245,12 @@ class Pipeline(object):
             if key in to_be_imported_yaml and type(to_be_imported_yaml[key]) != type(
                 val
             ):
-                raise ValueError(
-                    f"Type mismatch in imported YAML file. Expected for property '{key}' type '{type(val)}' but got type '{type(to_be_imported_yaml[key])}'"
-                )
+                if type(to_be_imported_yaml[key]) == type(None):
+                    continue
+                else:
+                    raise ValueError(
+                        f"Type mismatch in imported YAML file. Expected for property '{key}' type '{type(val)}' but got type '{type(to_be_imported_yaml[key])}'"
+                    )
 
             if type(val) == dict:
                 if key in to_be_imported_yaml:
@@ -548,7 +530,7 @@ class Pipeline(object):
                     "saveProgress": "",
                 }
 
-                stepDefinition = Pipeline.__merge_yaml_dict(
+                stepDefinition = Pipeline._Pipeline__merge_yaml_dict(
                     main_yaml=defaultStepDefinitionValues,
                     to_be_imported_yaml=stepDefinition,
                 )
@@ -575,17 +557,14 @@ class Pipeline(object):
                 else:
                     self.output = functionHandle(self.args)
 
-                globals()["yamlDataSaved"]["steps"][self.name] = (
-                    globals()["steps"].__dict__[self.name].__dict__
-                )
-
                 if self.saveProgress:
                     path_or_buf = _processStringForExpressions(self.saveProgress)
                     dataframe = self.output
                     if path_or_buf.split(".")[-1] == "csv":
                         dataframe.to_csv(path_or_buf)
-
-                    globals()["yamlDataSaved"]["steps"][self.name].pop("output")
+                        traceInfo(
+                            f"Saving output of steps['{self.name}'] as CSV to: {path_or_buf}"
+                        )
 
                 traceInfo(f"Finished pipeline steps['{self.name}']")
 
@@ -615,20 +594,14 @@ class Pipeline(object):
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     for node in nodeNames:
                         # Check if the step has already been executed before and resumeFromSaved
-                        if self[node].resumeFromSaved and globals()["yamlDataSaved"][
-                            "steps"
-                        ].get(self[node].name, {}).get("output", ""):
-                            self[node].output = (
-                                globals()["yamlDataSaved"]["steps"]
-                                .get(self[node].name, {})
-                                .get("output", "")
-                            )
-
-                        elif self[node].resumeFromSaved and os.path.exists(
+                        if self[node].resumeFromSaved and os.path.exists(
                             path=_processStringForExpressions(self[node].saveProgress)
                         ):
                             self[node].output = pd.read_csv(
                                 _processStringForExpressions(self[node].saveProgress)
+                            )
+                            traceInfo(
+                                f"Skipped execution of pipeline steps['{self[node].name}'], retrieved from '{self[node].saveProgress}' of previous execution"
                             )
 
                         else:
@@ -643,15 +616,6 @@ class Pipeline(object):
                     executor.shutdown(wait=True)
 
                 tqdm_list.update(len(nodeNames))
-
-            with open(
-                globals()["progress_file_path"],
-                mode="w",
-            ) as f:
-                yaml.dump(
-                    globals()["yamlDataSaved"],
-                    f,
-                )
 
         # region Python data slicers for accessing properties dynamically
 
@@ -683,7 +647,6 @@ class Pipeline(object):
 
     def run(self) -> None:
         self.steps.run()
-        # TODO: @rrmistry/@msuthar to discuss
 
     # endregion Execution Methods
 
