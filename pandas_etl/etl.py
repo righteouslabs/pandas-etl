@@ -467,16 +467,22 @@ class Pipeline(object):
                 expression_matched = re.findall(pattern=expression_regex, string=input)
                 if len(expression_matched) > 0:
 
-                    for matched in expression_matched:
+                    for (
+                        before_steps_keyword,
+                        step_name_in_brackets,
+                        expression_to_call_referenced_function,
+                        referenced_function_name,
+                        after_steps_referenced_function,
+                    ) in expression_matched:
 
-                        dependentStepName = matched[1]
+                        dependentStepName = step_name_in_brackets
                         dependentStepName = dependentStepName.strip()
                         dependentStepName = dependentStepName.strip('"')
                         dependentStepName = dependentStepName.strip("'")
 
-                        newStepNamePart = (
-                            matched[2].join([dependentStepName, matched[4]]).strip()
-                        )
+                        newStepNamePart = expression_to_call_referenced_function.join(
+                            [dependentStepName, after_steps_referenced_function]
+                        ).strip()
 
                         if dependentStepName not in self._dg:
                             raise ValueError(
@@ -487,13 +493,13 @@ class Pipeline(object):
 
                         input = input.replace(
                             "${"
-                            + matched[0]
+                            + before_steps_keyword
                             + "steps["
-                            + matched[1]
+                            + step_name_in_brackets
                             + "].output"
-                            + matched[2]
-                            + matched[3]
-                            + matched[4]
+                            + expression_to_call_referenced_function
+                            + referenced_function_name
+                            + after_steps_referenced_function
                             + "}",
                             newStepNamePart,
                         )
