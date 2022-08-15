@@ -540,14 +540,18 @@ class Pipeline(object):
                         "args": stepDefinition.get(stepName, {}),
                     }
 
-                if not "args" in stepDefinition.keys():
-                    stepDefinition["args"] = {}
+                # Create step definition with default values if none provided from user
+                # This ensures properties exist for downstream processing
+                defaultStepDefinitionValues = {
+                    "args": {},
+                    "resumeFromSaved": True,
+                    "saveProgress": "",
+                }
 
-                if not "resumeFromSaved" in stepDefinition.keys():
-                    stepDefinition["resumeFromSaved"] = True
-
-                if not "saveProgress" in stepDefinition.keys():
-                    stepDefinition["saveProgress"] = ""
+                stepDefinition = Pipeline.__merge_yaml_dict(
+                    main_yaml=defaultStepDefinitionValues,
+                    to_be_imported_yaml=stepDefinition,
+                )
 
                 # Merge existing object's properties with incoming properties
                 self.__dict__.update(stepDefinition)
