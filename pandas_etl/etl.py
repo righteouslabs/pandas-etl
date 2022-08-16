@@ -175,7 +175,6 @@ class Pipeline(object):
         #   And saved as Pipeline._Variables class
         #   Then `var.varName` evaluates to `varValue`
         globals()["var"] = self.variables
-        # TODO: @rrmistry/@msuthar to discuss if `var` can be renamed to `variables` to synchronize YAML with globals()
 
         # Set preFlight property to this Class
         exec(self.__dict__.get("preFlight", {}).get("script", ""), globals())
@@ -190,7 +189,6 @@ class Pipeline(object):
         #   And saved as Pipeline._Connections class
         #   Then `conn.connName` evaluates to `connObj`
         globals()["conn"] = self.connections
-        # TODO: @rrmistry/@msuthar to discuss if `conn` can be renamed to `connections` to synchronize YAML with globals()
 
         # Set steps property for this Class to help resolve values
         self.steps = Pipeline._Steps(steps=properties.get("steps", []))
@@ -200,6 +198,9 @@ class Pipeline(object):
         #   And saved as Pipeline._Steps class
         #   Then `steps['stepName]` evaluates to `stepObj`
         globals()["steps"] = self.steps
+
+        for key, value in self.__dict__.items():
+            globals()[key] = value
 
         traceInfo(f"Successfully loaded pipeline!")
 

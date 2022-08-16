@@ -72,6 +72,7 @@ def test_postgre_sql(get_postgresql_engine):
         ],
         overrideVariables={"postgresql_port": 5432},
     )
+    pipelineTestObj.run()
 
     df = pd.read_sql("SELECT * FROM pytest_output_table", get_postgresql_engine)
     print(df)
