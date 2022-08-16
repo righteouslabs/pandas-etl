@@ -51,6 +51,7 @@ class TestAddArgumentVariables:
             """,
             overrideVariables=self.overrideVariables,
         )
+        self.commandLineVariables = ["var1=value1", "var2=value2"]
 
     def test_add_argument_variables(self):
         """Confirm that variable override of different YAML files will result in a final merged variable list"""
@@ -59,6 +60,32 @@ class TestAddArgumentVariables:
             self.pipelineTestObj.variables.database
             == self.overrideVariables["database"]
         )
+
+    def test_parse_command_line_variables(self):
+        result = etl.parse_command_line_variables(self.commandLineVariables)
+        expected = {"var1": "value1", "var2": "value2"}
+        assert result == expected
+
+    def test_invalid_variable(self):
+        with pytest.raises(ValueError) as error:
+            etl.parse_command_line_variables(["var1=value1=value2"])
+        assert (
+            error.value.args[0]
+            == "Invalid command line for variable 'var1=value1=value2' Expected format as varName=varValue"
+        )
+
+    def test_unknown_variable(self):
+        with pytest.raises(AttributeError) as error:
+            # No variables defined
+            self.pipelineTestObj2 = etl.Pipeline(
+                yamlData="""
+                imports:
+                - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
+                connections:
+                  my_source: postgresql+psycopg2://${var.host}/${var.database}
+                """
+            )
+        assert error.value.args[0] == "'_Variables' object has no attribute 'host'"
 
 
 class TestAddArgumentImports:
@@ -111,66 +138,38 @@ class TestCreateEngineConnection:
             == "Engine(postgresql+psycopg2://postgres:***@localhost:9999/pandas_etl_test_db)"
         )
 
-    def test_unknown_variable(self):
-        with pytest.raises(AttributeError) as error:
-            # No variables defined
-            self.pipelineTestObj2 = etl.Pipeline(
-                yamlData="""
-                imports:
-                - ./tests/etl_definition_folder/variables/postgresql_database_variables.yaml
-                connections:
-                  my_source: postgresql+psycopg2://${var.host}/${var.database}
-                """
-            )
-        assert error.value.args[0] == "'_Variables' object has no attribute 'host'"
-
 
 class TestPipelineRun:
     def test_run_pipeline(self):
         pipelineObj = etl.Pipeline(
-            yamlData="""
-            # Define user functions that should be included in tests
-            preFlight:
-              script: |
-                def python_function_A(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:
-                    return inputA + inputB + inputC
-
-                def python_function_B(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:
-                    return inputA + inputB - inputC
-
-                def python_function_C(inputA: int = 1, inputB: int = 1, inputC: int = 1) -> int:
-                    return inputA * inputB * inputC
-
-            steps:
-            - python_function_A:
-                inputA: 1
-                inputB: 2
-                inputC: 3
-
-            - python_function_B:
-                inputA: 3
-                inputB: 2
-                inputC: 1
-
-            - python_function_C:
-                inputA: 2
-                inputB: 3
-                inputC: 1
-
-            - name: finalOutputOne
-              function: python_function_A
-              args:
-                inputA: ${steps['python_function_A'].output}
-                inputB: ${steps['python_function_B'].output}
-                inputC: ${steps['python_function_C'].output}
-
-            - name: finalOutputTwo
-              function: python_function_C
-              args:
-                inputA: ${steps['python_function_C'].output}
-                inputB: ${steps['python_function_B'].output}
-                inputC: ${steps['python_function_A'].output}
-            """
+            yamlData={
+                "preFlight": {
+                    "script": "def python_function_A(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:\n    return inputA + inputB + inputC\n\ndef python_function_B(inputA: int = 0, inputB: int = 0, inputC: int = 0) -> int:\n    return inputA + inputB - inputC\n\ndef python_function_C(inputA: int = 1, inputB: int = 1, inputC: int = 1) -> int:\n    return inputA * inputB * inputC\n"
+                },
+                "steps": [
+                    {"python_function_A": {"inputA": 1, "inputB": 2, "inputC": 3}},
+                    {"python_function_B": {"inputA": 3, "inputB": 2, "inputC": 1}},
+                    {"python_function_C": {"inputA": 2, "inputB": 3, "inputC": 1}},
+                    {
+                        "name": "finalOutputOne",
+                        "function": "python_function_A",
+                        "args": {
+                            "inputA": "${steps['python_function_A'].output}",
+                            "inputB": "${steps['python_function_B'].output}",
+                            "inputC": "${steps['python_function_C'].output}",
+                        },
+                    },
+                    {
+                        "name": "finalOutputTwo",
+                        "function": "python_function_C",
+                        "args": {
+                            "inputA": "${steps['python_function_C'].output}",
+                            "inputB": "${steps['python_function_B'].output}",
+                            "inputC": "${steps['python_function_A'].output}",
+                        },
+                    },
+                ],
+            }
         )
         pipelineObj.run()
         assert pipelineObj.steps["finalOutputOne"].output == (
@@ -219,6 +218,26 @@ class TestPipelineRun:
 
         # Delete the output file for cleanup
         os.remove(path=expected_output_file_path)
+
+    def test_mismatch_type(self):
+        with pytest.raises(ValueError) as error:
+            # No variables defined
+            etl.Pipeline(
+                yamlData="""
+                steps:
+                - name:             pd.read_csv.groupby_Instance1
+                function:         long_running_function
+                args:
+                   - df:             ${ steps['pd.read_csv'].output }",
+                """,
+                includeImports=[
+                    "./tests/etl_definition_folder/pipelines/pandas_pipeline_recovery_1.yaml"
+                ],
+            )
+        assert (
+            error.value.args[0]
+            == "Type mismatch in imported YAML file. Expected for property 'args' type '<class 'dict'>' but got type '<class 'str'>'"
+        )
 
 
 class TestPipelineRunRecovery:

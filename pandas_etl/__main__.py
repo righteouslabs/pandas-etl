@@ -51,7 +51,9 @@ if __name__ == "__main__":
 
     pipelineObj = Pipeline(
         yamlData=args.file,
-        overrideVariables=parse_command_line_variables(variables=args.var),
+        overrideVariables=parse_command_line_variables(variables=args.var)
+        if args.var
+        else {},
         includeImports=args.imports,
     )
     pipelineObj.run()

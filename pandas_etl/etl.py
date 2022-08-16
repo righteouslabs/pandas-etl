@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from tqdm.auto import tqdm
 
 
-def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
+def parse_command_line_variables(variables: list[str]) -> dict[str, str]:
     """
     Parse command line variables and convert to dictionary
 
@@ -25,16 +25,15 @@ def parse_command_line_variables(variables: list[str] = []) -> dict[str, str]:
         dict[str, str]: Returns a dictionary of `{key:value}` pairs after parsing command line
     """
     output = {}
-    if variables:
-        for var in variables:
-            varSplits = var.split("=")
-            if len(varSplits) != 2:
-                raise ValueError(
-                    f"Invalid command line for variable '{var}' Expected format as varName=varValue"
-                )
-            varName = varSplits[0].strip()
-            varValue = varSplits[1].strip()
-            output[varName] = varValue
+    for var in variables:
+        varSplits = var.split("=")
+        if len(varSplits) != 2:
+            raise ValueError(
+                f"Invalid command line for variable '{var}' Expected format as varName=varValue"
+            )
+        varName = varSplits[0].strip()
+        varValue = varSplits[1].strip()
+        output[varName] = varValue
     return output
 
 
