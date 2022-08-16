@@ -109,7 +109,7 @@ class Pipeline(object):
 
     def __init__(
         self,
-        yamlData,
+        yamlData: str or dict,
         includeImports: list = [],
         overrideVariables: dict = {},
     ):
@@ -129,7 +129,7 @@ class Pipeline(object):
                     yamlData = f.read()
 
             else:
-                traceInfo(f"Parsing YAML from memory")
+                traceInfo("Parsing YAML from memory")
             # Parse YAML string to in-memory object
             yamlData = Pipeline.from_yaml_to_dict(yamlStr=yamlData)
             traceInfo(f"Main YAML definition loaded from: {yamlData}")
@@ -201,7 +201,7 @@ class Pipeline(object):
         for key, value in self.__dict__.items():
             globals()[key] = value
 
-        traceInfo(f"Successfully loaded pipeline!")
+        traceInfo("Successfully loaded pipeline!")
 
     # endregion Class Methods
 
@@ -245,7 +245,7 @@ class Pipeline(object):
             if key in to_be_imported_yaml and type(to_be_imported_yaml[key]) != type(
                 val
             ):
-                if type(to_be_imported_yaml[key]) == type(None):
+                if isinstance(to_be_imported_yaml[key], type(None)):
                     continue
                 else:
                     raise ValueError(
@@ -432,14 +432,14 @@ class Pipeline(object):
                     raise RuntimeError(
                         f"Found cycles in dependencies of steps. Check this dependency cycle: {graph_dependency_cycles}"
                     )
-            except nx.NetworkXNoCycle as ex:
+            except nx.NetworkXNoCycle:
                 traceInfo(
                     f"No cycles detected in dependency graph! This is good to have.",
                     logLevel=logging.DEBUG,
                 )
 
         def __setup_dependencies_from_string_input(
-            self, input: str | list, input_type: str, stepName: str
+            self, input: str or list, input_type: str, stepName: str
         ) -> str:
 
             if isinstance(input, str):

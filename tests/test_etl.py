@@ -122,7 +122,7 @@ class TestCreateEngineConnection:
                   my_source: postgresql+psycopg2://${var.host}/${var.database}
                 """
             )
-        assert error.value.args[0] == f"'_Variables' object has no attribute 'host'"
+        assert error.value.args[0] == "'_Variables' object has no attribute 'host'"
 
 
 class TestPipelineRun:
@@ -252,7 +252,7 @@ class TestPipelineRunRecovery:
                         if record.message == "Starting long_running_function..."
                     ]
                 )
-                == True
+                is True
             )
 
         assert os.path.exists(path=expected_output_file_path)
@@ -280,7 +280,7 @@ class TestPipelineRunRecovery:
                         if record.message == "Starting long_running_function..."
                     ]
                 )
-                == False
+                is False
             )
 
         # Remove files after running pipeline
