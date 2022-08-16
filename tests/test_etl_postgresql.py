@@ -3,7 +3,7 @@ import pytest
 import time
 
 import pandas as pd
-
+import sqlalchemy.exc
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL as create_engine_conn_url
 
@@ -44,7 +44,7 @@ def get_postgresql_engine(docker_services):
                 with conn.begin():
                     yield conn
                     return
-        except:
+        except sqlalchemy.exc.OperationalError:
             print("Waiting 1 second for postgresql to startup")
             time.sleep(1)
 
@@ -74,7 +74,7 @@ def test_postgre_sql(get_postgresql_engine):
     pipelineTestObj.run()
 
     df = pd.read_sql("SELECT * FROM pytest_output_table", get_postgresql_engine)
-    print(df)
+    assert isinstance(df, pd.DataFrame)
 
     # Define the path of the expected output file
     expected_output_file_path = "./tests/data/max.csv"

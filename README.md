@@ -1,4 +1,18 @@
 # pandas-etl
+
+[![Package Tests](https://github.com/righteouslabs/pandas-etl/actions/workflows/test-deploy.yml/badge.svg?branch=main)](https://github.com/righteouslabs/pandas-etl/actions/workflows/test-deploy.yml)
+[![codecov](https://codecov.io/gh/righteouslabs/pandas-etl/branch/main/graph/badge.svg?token=Y33PFLH2HS)](https://codecov.io/gh/righteouslabs/pandas-etl)
+![PyPI](https://img.shields.io/pypi/v/pandas-etl)
+![Azure DevOps tests](https://img.shields.io/azure-devops/tests/righteous-ai/Python-Repos/6?compact_message)
+![PyPI - Downloads](https://img.shields.io/pypi/dd/pandas-etl)
+![PyPI - Format](https://img.shields.io/pypi/format/pandas-etl)
+![GitHub](https://img.shields.io/github/license/righteouslabs/pandas-etl)
+![GitHub language count](https://img.shields.io/github/languages/count/righteouslabs/pandas-etl)
+![GitHub top language](https://img.shields.io/github/languages/top/righteouslabs/pandas-etl)
+![Snyk Vulnerabilities for GitHub Repo](https://img.shields.io/snyk/vulnerabilities/github/righteouslabs/pandas-etl)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/righteouslabs/pandas-etl)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pandas-etl)
+
 A utility for running YAML config as Pandas based ETL code
 
 ## Installing ⏬

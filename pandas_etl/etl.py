@@ -293,7 +293,7 @@ class Pipeline(object):
                     main_yaml[key] = to_be_imported_yaml[key]
 
         for key, val in to_be_imported_yaml.items():
-            if not key in main_yaml:
+            if key not in main_yaml:
                 # Set new properties that are not in main_yaml but in to_be_imported_yaml
                 main_yaml[key] = val
 
@@ -434,7 +434,7 @@ class Pipeline(object):
                     )
             except nx.NetworkXNoCycle:
                 traceInfo(
-                    f"No cycles detected in dependency graph! This is good to have.",
+                    "No cycles detected in dependency graph! This is good to have.",
                     logLevel=logging.DEBUG,
                 )
 

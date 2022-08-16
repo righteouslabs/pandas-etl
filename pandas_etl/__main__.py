@@ -17,7 +17,6 @@ def cl_args_parser():
         "-f",
         "--file",
         help="Path to yaml config file",
-        required=True,
         metavar='"usr/dir/file.yaml"',
     )
     parser.add_argument(
@@ -42,10 +41,12 @@ def cl_args_parser():
 
 if __name__ == "__main__":
     parser = cl_args_parser()
-    try:
-        args = parser.parse_args()
-    except:
+
+    args = parser.parse_args()
+
+    if not args.file:
         parser.print_help()
+        print("-f/--file arguments are required")
         sys.exit(0)
 
     pipelineObj = Pipeline(
