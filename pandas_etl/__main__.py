@@ -1,4 +1,4 @@
-import os, sys
+import sys
 import argparse
 from .etl import Pipeline
 from .etl import parse_command_line_variables

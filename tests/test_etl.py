@@ -5,7 +5,6 @@ from pandas_etl import etl
 import sqlalchemy
 import uuid
 from calltraces.linetrace import traceWarning
-from sqlalchemy.engine.base import Engine as Engine
 
 
 @pytest.fixture(scope="session")

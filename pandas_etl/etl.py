@@ -6,8 +6,7 @@ import yaml
 import networkx as nx
 import pandas as pd
 from calltraces.classtrace import classtrace
-from calltraces.functiontrace import functiontrace
-from calltraces.linetrace import traceError, traceInfo
+from calltraces.linetrace import traceInfo
 from sqlalchemy import create_engine
 from tqdm.auto import tqdm
 
@@ -51,7 +50,7 @@ def _processStringForExpressions(input: any) -> any:
     Returns:
         str: Output string or dictionary (always same type as input)
     """
-    if type(input) == str:
+    if isinstance(input, str):
         # Reference: https://docs.python.org/3/howto/regex.html#greedy-versus-non-greedy
         expression_regex = re.compile(r"(.*)\$\{(.*?)\}(.*)")
         expression_matched = re.findall(pattern=expression_regex, string=input)
@@ -84,11 +83,11 @@ def _processStringForExpressions(input: any) -> any:
 
         return output
 
-    elif type(input) == dict:
+    elif isinstance(input, dict):
         output = {k: _processStringForExpressions(v) for k, v in input.items()}
         return output
 
-    elif type(input) == list:
+    elif isinstance(input, list):
         output = input
         for i in range(len(input)):
             output[i] = _processStringForExpressions(input[i])
@@ -110,7 +109,7 @@ class Pipeline(object):
 
     def __init__(
         self,
-        yamlData: str | dict,
+        yamlData,
         includeImports: list = [],
         overrideVariables: dict = {},
     ):
@@ -123,7 +122,7 @@ class Pipeline(object):
             overrideVariables (dict[str, str], optional): variables to override from YAML. Defaults to {}.
         """
 
-        if type(yamlData) == str:
+        if isinstance(yamlData, str):
             if os.path.exists(yamlData):
                 traceInfo(f"Loading yaml config from file {yamlData}")
                 with open(yamlData, mode="r", encoding="utf-8") as f:
@@ -253,7 +252,7 @@ class Pipeline(object):
                         f"Type mismatch in imported YAML file. Expected for property '{key}' type '{type(val)}' but got type '{type(to_be_imported_yaml[key])}'"
                     )
 
-            if type(val) == dict:
+            if isinstance(val, dict):
                 if key in to_be_imported_yaml:
                     main_yaml[key].update(
                         Pipeline.__merge_yaml_dict(
@@ -262,11 +261,11 @@ class Pipeline(object):
                             to_be_imported_yaml_file_name=to_be_imported_yaml_file_name,
                         )
                     )
-            elif type(val) == list:
+            elif isinstance(val, list):
                 if key in to_be_imported_yaml:
                     # Add imported list items to the beginning of the list
                     main_yaml[key] = to_be_imported_yaml[key] + main_yaml[key]
-            elif type(val) == str:
+            elif isinstance(val, str):
                 if key in to_be_imported_yaml:
                     numberOfLines = val.count("\n")
                     if numberOfLines > 0:
@@ -375,7 +374,7 @@ class Pipeline(object):
         def __init__(self, conns: dict = {}):
             connectionDictionary = {
                 connName: create_engine(url=_processStringForExpressions(input=connObj))
-                if type(connObj) == str
+                if isinstance(connObj, str)
                 else create_engine(**_processStringForExpressions(input=connObj))
                 for connName, connObj in conns.items()
             }
@@ -406,13 +405,13 @@ class Pipeline(object):
                     stepName=stepObj.name,
                 )
 
-                if stepObj.args is not None and type(stepObj.args) == dict:
+                if stepObj.args is not None and isinstance(stepObj.args, dict):
                     # Do not replace arg. Just track dependency
                     for arg, value in stepObj.args.items():
                         self.__setup_dependencies_from_string_input(
                             input=value, input_type="args", stepName=stepObj.name
                         )
-                elif stepObj.args is not None and type(stepObj.args) == list:
+                elif stepObj.args is not None and isinstance(stepObj.args, list):
                     for value in stepObj.args:
                         self.__setup_dependencies_from_string_input(
                             input=value, input_type="args", stepName=stepObj.name
@@ -443,7 +442,7 @@ class Pipeline(object):
             self, input: str | list, input_type: str, stepName: str
         ) -> str:
 
-            if type(input) == str:
+            if isinstance(input, str):
                 expression_regex = re.compile(
                     r"\$\{(.*)steps\[(.*?)\]\.output(\.)?(\w*?)(.*)\}"
                 )
@@ -492,9 +491,9 @@ class Pipeline(object):
                     elif input_type == "args" or input_type == "function":
                         self._dg.add_edge(dependentStepName, stepName)
                 return input
-            elif type(input) == list:
+            elif isinstance(input, list):
                 for i in range(len(input)):
-                    if type(input[i]) != str:
+                    if not isinstance(input[i], str):
                         continue
                     else:
                         self.__setup_dependencies_from_string_input(
@@ -509,7 +508,7 @@ class Pipeline(object):
                 self,
                 stepDefinition: dict = {},
             ):
-                if type(stepDefinition) != dict:
+                if not isinstance(stepDefinition, dict):
                     raise ValueError(
                         "Expected step to be like a dictionary of keys:value pairs"
                     )
@@ -541,7 +540,7 @@ class Pipeline(object):
 
             def run(self) -> None:
                 functionHandle = _processStringForExpressions(input=self.function)
-                if type(functionHandle) == str:
+                if isinstance(functionHandle, str):
                     functionHandle = eval(functionHandle)
 
                 traceInfo(f"Starting pipeline steps['{self.name}']")
@@ -551,9 +550,9 @@ class Pipeline(object):
                 # Interpret all the arguments for any evaluated expressions
                 self.args = _processStringForExpressions(input=self.args)
 
-                if type(self.args) == dict:
+                if isinstance(self.args, dict):
                     self.output = functionHandle(**self.args)
-                elif type(self.args) == list:
+                elif isinstance(self.args, list):
                     self.output = functionHandle(*self.args)
                 else:
                     self.output = functionHandle(self.args)
