@@ -112,7 +112,7 @@ class Pipeline(object):
         self,
         yamlData: str | dict,
         includeImports: list = [],
-        overrideVariables: dict[str, str | int] = {},
+        overrideVariables: dict = {},
     ):
         """
         Initialize Pipeline class
