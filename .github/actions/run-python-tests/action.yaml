@@ -1,0 +1,57 @@
+name: 'Run python test cases'
+description: 'Run standardized Python test cases and pre-build actions'
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: true
+    default: '3.10'
+
+runs:
+  using: "composite"
+
+  steps:
+
+  - name: Set up Python ${{ inputs.python-version }} 🐍
+    uses: actions/setup-python@v3
+    with:
+      python-version: ${{ inputs.python-version }}
+
+  - name: Add conda to system path ➡️
+    shell: bash
+    run: |
+      # $CONDA is an environment variable pointing to the root of the miniconda directory
+      echo $CONDA/bin >> $GITHUB_PATH
+
+  - name: Install dependencies ⬇️
+    shell: bash
+    run: |
+      # Update Conda
+      conda update -n base -c defaults conda
+      # Update Conda packages
+      conda env update --file environment.yml --name base
+
+  - name: Run pre-commit checks ✔️
+    uses: pre-commit/action@v3.0.0
+
+  - name: Lint with flake8 📐
+    shell: bash
+    run: |
+      # stop the build if there are Python syntax errors or undefined names
+      flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      # exit-zero treats all errors as warnings
+      flake8 . --count --exit-zero --statistics
+
+  - name: Lint with Black 📐
+    shell: bash
+    run: |
+      # stop the build if there are Python issues with Black
+      python -m black --check .
+
+  - name: Test with pytest 🧪
+    shell: bash
+    run: |
+      python -m pytest
+
+  - name: ☂ Upload Code Coverage
+    uses: codecov/codecov-action@v3.1.0

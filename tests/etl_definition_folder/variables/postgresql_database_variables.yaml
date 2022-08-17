@@ -1,0 +1,5 @@
+
+# Testing variables
+variables:
+  server: localhost
+  database: pandas_etl_test_db

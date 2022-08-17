@@ -1,0 +1,88 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+        {
+            "name": "Python: Specific File",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+        {
+            "name": "Python: Python Tests",
+            "type": "python",
+            "request": "launch",
+            "module": "pytest",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "args": [
+                // If you want to run a specific test only
+                // "./tests/test_etl.py::TestAddArgumentImports::test_add_argument_imports"
+                "./tests/test_etl.py::TestCreateEngineConnection::test_create_engine_connection"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+        {
+            "name": "Python: Yaml Test 1",
+            "type": "python",
+            "request": "launch",
+            "module": "pandas_etl",
+            "console": "integratedTerminal",
+            "args": ["--file", "${workspaceFolder}/tests/mockup.yaml"],
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+        {
+            "name": "Python: Yaml Test 2",
+            "type": "python",
+            "request": "launch",
+            "module": "pandas_etl",
+            "console": "integratedTerminal",
+            "args": ["--file", "${workspaceFolder}/tests/mockup4.yml", "--var", "varName1=varValue1",],
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+        {
+            "name": "Python: Yaml Test 3",
+            "type": "python",
+            "request": "launch",
+            "module": "pandas_etl",
+            "console": "integratedTerminal",
+            "args": ["--file", "${workspaceFolder}/tests/etl_definition_folder/pipelines/pandas_pipeline_recovery_1.yaml"],
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+            },
+        },
+    ]
+}

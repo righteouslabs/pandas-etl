@@ -46,6 +46,7 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+test-output.xml
 *.cover
 *.py,cover
 .hypothesis/
@@ -127,3 +128,15 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Local History for Visual Studio Code
+.history/
+
+# Local testing files
+testing.ipynb
+tests/dummy.csv
+tests/mockup.yaml
+tests/mockup2.yml
+tests/mockup3.yml
+tests/mockup4.yml
+tests/test.py

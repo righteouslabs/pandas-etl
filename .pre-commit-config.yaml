@@ -1,0 +1,31 @@
+# Usage:
+    # pre-commit install
+    # pre-commit run --all-files
+
+    # Reference: https://pre-commit.com/#usage
+
+    repos:
+
+      - repo: https://github.com/pre-commit/pre-commit-hooks
+        rev: v2.3.0
+        hooks:
+          - id: check-yaml
+          - id: end-of-file-fixer
+          - id: trailing-whitespace
+
+      - repo: https://github.com/psf/black
+        rev: 22.3.0
+        hooks:
+          - id: black
+
+      # # Run pytest runs locally
+      # - repo: local
+      #   hooks:
+      #     - id: pytest-check
+      #       name: pytest-check
+      #       stages: [manual]
+      #       types: [python]
+      #       entry: pytest
+      #       language: system
+      #       pass_filenames: false
+      #       always_run: true

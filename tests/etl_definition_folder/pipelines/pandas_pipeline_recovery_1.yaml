@@ -1,0 +1,51 @@
+# Define user functions that should be included in tests
+preFlight:
+  script: |
+    import pandas as pd
+    import time
+    def long_running_function(df:pd.DataFrame)->pd.DataFrame:
+
+      # Capture this log message in PyTest by confirming that
+      # this function does not get executed on second re-run
+      # And that the file specified in `saveProgress` for each step
+      #   if exists is read into memory and set to `steps['stepName'].output`
+      #   if not exists then run the function as-is
+      # if property `resumeFromSaved` is true (default) then do not run the function if `saveProgress` file exists
+      # if property `resumeFromSaved` is false then run the function regardless if `saveProgress` file exists or not
+      logging.info("Starting long_running_function...")
+      # print("Running long_running_function...")
+
+      return df.groupby(by="AB").max()
+
+variables:
+  workingDataFolder: ./tests/data
+
+steps:
+
+- pd.read_csv:
+    filepath_or_buffer: ${var.workingDataFolder}/test.csv
+
+- name:             pd.read_csv.groupby_Instance1
+  function:         long_running_function
+  args:
+    df:             ${ steps['pd.read_csv'].output }
+  saveProgress:     ${var.workingDataFolder}/groupby_Instance1.csv
+  resumeFromSaved:  true
+
+- name:             pd.read_csv.groupby_Instance2
+  function:         long_running_function
+  args:
+    df:             ${ steps['pd.read_csv'].output }
+  saveProgress:     ${var.workingDataFolder}/groupby_Instance2.csv
+  resumeFromSaved:  true
+
+- pd.concat:
+    ignore_index:   false
+    objs:
+                    - ${ steps['pd.read_csv.groupby_Instance1'].output }
+                    - ${ steps['pd.read_csv.groupby_Instance2'].output }
+
+- name:             pd.concat.max
+  function:         ${ steps['pd.concat'].output.max }
+  saveProgress:     ${var.workingDataFolder}/max.csv
+  resumeFromSaved:  true

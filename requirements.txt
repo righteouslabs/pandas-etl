@@ -1,0 +1,6 @@
+# Usage Dependency
+calltraces>=2022.7.5.2
+sqlalchemy>=1.4.39
+pandas>=1.4.3
+tqdm>=4.64.0
+networkx>=2.8.5

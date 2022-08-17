@@ -1,0 +1,5 @@
+
+# Testing variables
+variables:
+  server: MY_SERVER_NAME.MYDOMAIN.COM
+  database: MY_DATABASE

@@ -1,0 +1,12 @@
+# Testing Dependencies
+pytest>=7.1.2
+pytest-cov>=3.0.0
+pytest-black>=0.3.12
+pytest-azurepipelines>=1.0.3
+logassert>=7
+
+# For integration tests
+pytest-docker[docker-compose-v1]>=1.0.0
+
+# PostGreSQL Dependencies
+psycopg2-binary>=2.9.3

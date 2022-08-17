@@ -1,0 +1,108 @@
+[build-system]
+requires = [
+    "setuptools>=62.6.0",
+    "setuptools_scm[toml]>=7.0.4",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pandas_etl"
+description = "A utility for running YAML config as Pandas based ETL code"
+keywords = [
+    "pandas-etl",
+    "pandas_etl",
+    "call",
+    "yaml",
+]
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.8"
+authors = [
+    { name = "Righteous AI Inc.", email = "admin@righteous.ai" }
+]
+dependencies = [
+    "colorama>=0.4.4",
+    "tqdm>=4.64.0",
+    "sqlalchemy>=1.4.39",
+]
+dynamic = ["version"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+[urls]
+"Source Code" = "https://github.com/righteouslabs/pandas-etl"
+"Bug Tracker" = "https://github.com/righteouslabs/pandas-etl/issues"
+
+[tool.setuptools_scm]
+
+[tool.setuptools]
+packages = ["pandas_etl"]
+
+[tool.black]
+target-version = ['py38', 'py39']
+force-exclude = '''
+(
+    asv_bench/env
+  | \.egg
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.nox
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)
+'''
+
+[tool.pytest.ini_options]
+# Documentation:
+# - https://docs.pytest.org/en/stable/goodpractices.html
+# - https://docs.pytest.org/en/stable/reference.html#ini-options-ref
+# - https://docs.pytest.org/en/stable/pythonpath.html
+# - https://docs.pytest.org/en/stable/customize.html#config-file-formats
+
+minversion = "6.0"
+addopts = [
+    "--import-mode=prepend",
+    "--cov-config=coverage.ini",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-report=annotate",
+    "--cov=.",
+    "--capture=tee-sys",
+    "--verbose",
+]
+
+norecursedirs = [
+    "htmlcov",
+    "logs",
+    "docs",
+    ".vscode",
+]
+
+testpaths = [
+    "tests",
+]
+
+console_output_style = "progress"
+
+
+log_level = "DEBUG"
+log_cli = "True"
+log_format = "%(asctime)s %(levelname)s %(message)s"
+log_date_format = "%Y-%m-%d %H:%M:%S"
+
+junit_logging = "system-out"
+junit_family = "xunit2"

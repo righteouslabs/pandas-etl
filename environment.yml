@@ -1,0 +1,38 @@
+# Usage:
+# conda env update --file environment.yml --verbose
+
+# Required Software: Miniconda
+# Link: https://docs.conda.io/en/latest/miniconda.html
+
+name: pandas-etl
+
+channels:
+- defaults
+
+# Define Environment Dependencies
+dependencies:
+
+# Install python as needed
+- python>=3.9
+- pip>=20.2.2
+
+# Install pip dependencies for this package
+- pip:
+  # Set the index used to install pypi packages
+  # This can be set to project specific private python repository
+  - --index-url https://pypi.org/simple
+
+  # Install base package dependencies
+  - --requirement requirements.txt
+
+  # Install build package dependencies
+  - --requirement requirements/requirements.build.txt
+
+  # Install pip dependencies for development
+  - --requirement requirements/requirements.dev.txt
+
+  # Install pip dependencies for testing
+  - --requirement requirements/requirements.tests.txt
+
+  # Install pip dependencies for documentation
+  - --requirement requirements/requirements.docs.txt
