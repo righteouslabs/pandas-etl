@@ -43,6 +43,7 @@ classifiers = [
 "Bug Tracker" = "https://github.com/righteouslabs/pandas-etl/issues"
 
 [tool.setuptools_scm]
+local_scheme = "no-local-version"
 
 [tool.setuptools]
 packages = ["pandas_etl"]
